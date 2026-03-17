@@ -28,24 +28,26 @@ export default async function handler(req, res) {
 
         const cleanPhone = `+1${phone.replace(/\D/g, '').slice(-10)}`;
 
-        // 3. Send via OpenPhone
-        const opRes = await fetch('https://api.openphone.com/v1/messages', {
-            method: 'POST',
-            headers: { 
-                'Authorization': `Bearer ${OPENPHONE_API_KEY.trim()}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                content: `Hi ${firstname || 'there'}, it’s ${ownerName} from Dogwise Academy. I got your form asking for help with Dog training, call back when you can, or if texting’s easier I’d love to hear more about your dog.`,
-                from: OPENPHONE_NUMBER_ID.trim(),
-                to: [cleanPhone]
-            })
-        });
+// 3. Send via OpenPhone
+const opRes = await fetch('https://api.openphone.com/v1/messages', {
+    method: 'POST',
+    headers: { 
+        // Note: Removed 'Bearer ' - OpenPhone usually just wants the key
+        'Authorization': OPENPHONE_API_KEY.trim(), 
+        'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+        // Fixed the variable name greeting
+        content: `Hi ${firstname || 'there'}, it's ${ownerName} from Dogwise Academy. I got your form asking for help with dog training. Call back when you can, or if texting's easier I'd love to hear more about your dog!`,
+        
+        // Manual Number Bypass (using your number directly)
+        from: "+16465767764", 
+        to: [cleanPhone]
+    })
+});
 
-        return res.status(200).json({ status: "Success" });
+// Capture the actual response from OpenPhone for your logs
+const opData = await opRes.json();
+console.log("OpenPhone API Response:", opData);
 
-    } catch (err) {
-        console.error("Error:", err.message);
-        return res.status(500).json({ error: err.message });
-    }
-}
+return res.status(200).json({ status: "Success", openphone: opData });
