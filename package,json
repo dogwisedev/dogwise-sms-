@@ -1,0 +1,8 @@
+{
+  "name": "dogwise-sms",
+  "version": "1.0.0",
+  "main": "api/send-sms.js",
+  "engines": {
+    "node": "20.x"
+  }
+}
