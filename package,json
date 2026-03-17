@@ -1,6 +1,7 @@
 {
   "name": "dogwise-sms",
   "version": "1.0.0",
+  "type": "module",
   "main": "api/send-sms.js",
   "dependencies": {
     "axios": "^1.6.0"
