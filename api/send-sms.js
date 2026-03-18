@@ -3,13 +3,27 @@ module.exports = async (req, res) => {
     const { HUBSPOT_ACCESS_TOKEN, OPENPHONE_API_KEY } = process.env;
 
     const phoneMap = {
-        "75482998": { "East Coast": "PNItsh7bWS", "West Coast": "PNEcKEoyHX", "Florida": "PNceGqLFha", "Texas": "PNWT0HuaAy" }, // ALMA
-        "89047041": { "East Coast": "PNhk6l4DYO", "West Coast": "PNYHBbwDjZ", "Florida": "PNDiOn7aMC" }, // EMMALEE
-        "62966121": { "East Coast": "PNdBXv8eHM", "West Coast": "PN8eZbHA8A", "Florida": "PNaUeSGiQ2", "Texas": "PNHtnDN8cV" }, // ARI
-        "60242445": { "East Coast": "PNmPKyUwAo", "West Coast": "PN0bfl92Xh", "Florida": "PN0XxYbla8" }, // LUISA
-        "62334315": { "East Coast": "PNrjR3eNC1", "West Coast": "PNMsQ9zB00", "Florida": "PNjNCoDod1" }, // PAUL
-        "51651806": { "East Coast": "PNCVRsFSYc", "West Coast": "PNo869d9E4", "Florida": "PN4SwnqKvp" }, // OLIVIA
-        "89704240": { "East Coast": "PNItsh7bWS", "West Coast": "PNItsh7bWS", "Florida": "PNItsh7bWS" } // KLOIE
+        "11782": { // ALMA
+            "East Coast": "PNItsh7bWS", "West Coast": "PNEcKEoyHX", "Florida": "PNceGqLFha", "Texas": "PNWT0HuaAy" 
+        },
+        "601": { // EMMALEE
+            "East Coast": "PNhk6l4DYO", "West Coast": "PNYHBbwDjZ", "Florida": "PNDiOn7aMC" 
+        },
+        "21107": { // ARI
+            "East Coast": "PNdBXv8eHM", "West Coast": "PN8eZbHA8A", "Florida": "PNaUeSGiQ2", "Texas": "PNHtnDN8cV" 
+        },
+        "24671": { // LUISA
+            "East Coast": "PNmPKyUwAo", "West Coast": "PN0bfl92Xh", "Florida": "PN0XxYbla8" 
+        },
+        "25246": { // PAUL
+            "East Coast": "PNrjR3eNC1", "West Coast": "PNMsQ9zB00", "Florida": "PNjNCoDod1" 
+        },
+        "23422": { // OLIVIA
+            "East Coast": "PNCVRsFSYc", "West Coast": "PNo869d9E4", "Florida": "PN4SwnqKvp" 
+        },
+        "0": { // KLOIE
+            "East Coast": "PNItsh7bWS", "West Coast": "PNItsh7bWS", "Florida": "PNItsh7bWS" 
+        }
     };
 
     try {
@@ -18,6 +32,7 @@ module.exports = async (req, res) => {
 
         let contactId, lead_region, deal_owner_id;
 
+        // STEP 1: Fetch Deal Data
         if (isDealWorkflow) {
             const dealRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${objectId}?properties=lead_region,hubspot_owner_id&associations=contacts`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
@@ -45,13 +60,14 @@ module.exports = async (req, res) => {
 
         if (!contactId) return res.status(200).json({ message: "No contact identified" });
 
+        // STEP 2: Fetch Contact Name & Phone
         const hsRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone`, {
             headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
         });
         const contactData = await hsRes.json();
         const { firstname, phone } = contactData.properties;
 
-        // RESOLVE OWNER NAME
+        // STEP 3: Resolve Owner Name
         let ownerName = "Alma";
         if (deal_owner_id) {
             const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${deal_owner_id}`, {
@@ -63,19 +79,16 @@ module.exports = async (req, res) => {
             }
         }
 
-        // --- SMART ROUTING LOGIC ---
+        // --- STEP 4: SMART ROUTING (THE FIX) ---
         const region = lead_region || "East Coast";
-        const ownerIdStr = deal_owner_id ? deal_owner_id.toString() : "75482998";
+        const ownerIdStr = deal_owner_id ? deal_owner_id.toString() : "11782"; // Default to Alma ID
         
-        // Pick the map for the owner, or default to Alma if ID doesn't exist in map
-        const ownerNumbers = phoneMap[ownerIdStr] || phoneMap["75482998"];
-        
-        // Pick the number for the region, or default to their East Coast number
+        const ownerNumbers = phoneMap[ownerIdStr] || phoneMap["11782"];
         const senderPN = ownerNumbers[region] || ownerNumbers["East Coast"];
 
-        console.log(`ROUTING LOG: OwnerID: ${ownerIdStr}, Region: ${region}, FinalPN: ${senderPN}`);
+        console.log(`FINAL ROUTE: Owner: ${ownerName} (${ownerIdStr}), Region: ${region}, PN: ${senderPN}`);
 
-        // --- SEND ---
+        // --- STEP 5: SEND TO OPENPHONE ---
         const cleanPhone = `+1${phone.replace(/\D/g, '').slice(-10)}`;
         const opRes = await fetch('https://api.openphone.com/v1/messages', {
             method: 'POST',
@@ -91,7 +104,7 @@ module.exports = async (req, res) => {
         });
 
         const opData = await opRes.json();
-        return res.status(200).json({ status: "Success", owner: ownerName, sentFrom: senderPN, openphone: opData });
+        return res.status(200).json({ status: "Success", sentFrom: senderPN, openphone: opData });
 
     } catch (err) {
         return res.status(500).json({ error: err.message });
