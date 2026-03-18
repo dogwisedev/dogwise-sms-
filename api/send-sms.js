@@ -3,7 +3,6 @@ module.exports = async (req, res) => {
 
     const { HUBSPOT_ACCESS_TOKEN, OPENPHONE_API_KEY } = process.env;
 
-    // --- YOUR TEAM'S PHONE MAPPING ---
     const phoneMap = {
         "75482998": { "East Coast": "PNItsh7bWS", "West Coast": "PNEcKEoyHX", "Florida": "PNceGqLFha", "Texas": "PNWT0HuaAy" },
         "89047041": { "East Coast": "PNhk6l4DYO", "West Coast": "PNYHBbwDjZ", "Florida": "PNDiOn7aMC" },
@@ -11,18 +10,17 @@ module.exports = async (req, res) => {
         "60242445": { "East Coast": "PNmPKyUwAo", "West Coast": "PN0bfl92Xh", "Florida": "PN0XxYbla8" },
         "62334315": { "East Coast": "PNrjR3eNC1", "West Coast": "PNMsQ9zB00", "Florida": "PNjNCoDod1" },
         "51651806": { "East Coast": "PNCVRsFSYc", "West Coast": "PNo869d9E4", "Florida": "PN4SwnqKvp" },
-        "89704240": { "East Coast": "PNItsh7bWS", "West Coast": "PNItsh7bWS", "Florida": "PNItsh7bWS" } // Kloie
+        "89704240": { "East Coast": "PNItsh7bWS", "West Coast": "PNItsh7bWS", "Florida": "PNItsh7bWS" }
     };
 
     try {
         const objectId = req.body.objectId || req.body.contactId;
-        const objectType = req.body.objectType; // HubSpot sends this in webhooks
+        // HubSpot sends objectType in mixed workflows
+        const isDeal = req.body.objectType === 'DEAL' || (req.body.objectId && !req.body.contactId);
 
         let contactId, lead_region, hubspot_owner_id;
 
-        // 1. DATA DISCOVERY: Find the Deal & Contact info
-        if (objectType === 'DEAL' || (req.body.objectId && !req.body.contactId)) {
-            // Workflow triggered by a DEAL
+        if (isDeal) {
             const dealRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${objectId}?properties=lead_region,hubspot_owner_id&associations=contacts`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
@@ -31,15 +29,12 @@ module.exports = async (req, res) => {
             hubspot_owner_id = dealData.properties.hubspot_owner_id;
             contactId = dealData.associations?.contacts?.results[0]?.id;
         } else {
-            // Workflow triggered by a CONTACT
             contactId = objectId;
             const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=hubspot_owner_id&associations=deals`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
             const contactData = await contactRes.json();
             hubspot_owner_id = contactData.properties.hubspot_owner_id;
-            
-            // Get region from the most recent associated Deal
             const dealId = contactData.associations?.deals?.results[0]?.id;
             if (dealId) {
                 const dealRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${dealId}?properties=lead_region`, {
@@ -50,18 +45,16 @@ module.exports = async (req, res) => {
             }
         }
 
-        if (!contactId) return res.status(200).json({ message: "No Contact associated." });
+        if (!contactId) return res.status(200).json({ message: "No contact found" });
 
-        // 2. FETCH CONTACT DETAILS (Name/Phone)
         const hsRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone`, {
             headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
         });
         const contactData = await hsRes.json();
         const { firstname, phone } = contactData.properties;
 
-        if (!phone) return res.status(200).json({ message: "No phone found." });
+        if (!phone) return res.status(200).json({ message: "No phone number" });
 
-        // 3. RESOLVE OWNER NAME
         let ownerName = "Alma";
         if (hubspot_owner_id) {
             const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${hubspot_owner_id}`, {
@@ -73,17 +66,18 @@ module.exports = async (req, res) => {
             }
         }
 
-        // 4. SMART ROUTING LOGIC
-        const region = lead_region || "East Coast"; 
-        const ownerNumbers = phoneMap[hubspot_owner_id] || phoneMap["75482998"]; // Default to Alma
+        // Logic for PN selection
+        const region = lead_region || "East Coast";
+        const ownerNumbers = phoneMap[hubspot_owner_id] || phoneMap["75482998"];
         const senderPN = ownerNumbers[region] || ownerNumbers["East Coast"];
 
-        // 5. SEND VIA OPENPHONE
         const cleanPhone = `+1${phone.replace(/\D/g, '').slice(-10)}`;
+
+        // Send to OpenPhone using your OLD CODE'S AUTH FORMAT
         const opRes = await fetch('https://api.openphone.com/v1/messages', {
             method: 'POST',
             headers: { 
-                'Authorization': `Bearer ${OPENPHONE_API_KEY.trim()}`, 
+                'Authorization': OPENPHONE_API_KEY.trim(), // Restored to your old working style
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -94,9 +88,12 @@ module.exports = async (req, res) => {
         });
 
         const opData = await opRes.json();
-        return res.status(200).json({ status: "Success", sentFrom: senderPN, region: region, openphone: opData });
+        console.log("OpenPhone API Response:", opData);
+
+        return res.status(200).json({ status: "Success", sentFrom: senderPN, openphone: opData });
 
     } catch (err) {
+        console.error("Runtime Error:", err.message);
         return res.status(500).json({ error: err.message });
     }
 };
