@@ -18,7 +18,6 @@ module.exports = async (req, res) => {
 
         let contactId, lead_region, deal_owner_id;
 
-        // STEP 1: Always try to get Deal data first to find the REAL owner of the sale
         if (isDealWorkflow) {
             const dealRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${objectId}?properties=lead_region,hubspot_owner_id&associations=contacts`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
@@ -28,7 +27,6 @@ module.exports = async (req, res) => {
             deal_owner_id = dealData.properties.hubspot_owner_id;
             contactId = dealData.associations?.contacts?.results[0]?.id;
         } else {
-            // If Contact workflow, find the Deal associated with it
             contactId = objectId;
             const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=hubspot_owner_id&associations=deals`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
@@ -45,16 +43,15 @@ module.exports = async (req, res) => {
             }
         }
 
-        if (!contactId) return res.status(200).json({ message: "No associated contact found." });
+        if (!contactId) return res.status(200).json({ message: "No contact identified" });
 
-        // STEP 2: Fetch Contact Details for the text content
         const hsRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone`, {
             headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
         });
         const contactData = await hsRes.json();
         const { firstname, phone } = contactData.properties;
 
-        // STEP 3: Resolve Owner Name from the DEAL OWNER
+        // RESOLVE OWNER NAME
         let ownerName = "Alma";
         if (deal_owner_id) {
             const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${deal_owner_id}`, {
@@ -66,12 +63,19 @@ module.exports = async (req, res) => {
             }
         }
 
-        // STEP 4: Pick the Number based on DEAL OWNER and DEAL REGION
+        // --- SMART ROUTING LOGIC ---
         const region = lead_region || "East Coast";
-        const ownerNumbers = phoneMap[deal_owner_id] || phoneMap["75482998"];
+        const ownerIdStr = deal_owner_id ? deal_owner_id.toString() : "75482998";
+        
+        // Pick the map for the owner, or default to Alma if ID doesn't exist in map
+        const ownerNumbers = phoneMap[ownerIdStr] || phoneMap["75482998"];
+        
+        // Pick the number for the region, or default to their East Coast number
         const senderPN = ownerNumbers[region] || ownerNumbers["East Coast"];
 
-        // STEP 5: Send
+        console.log(`ROUTING LOG: OwnerID: ${ownerIdStr}, Region: ${region}, FinalPN: ${senderPN}`);
+
+        // --- SEND ---
         const cleanPhone = `+1${phone.replace(/\D/g, '').slice(-10)}`;
         const opRes = await fetch('https://api.openphone.com/v1/messages', {
             method: 'POST',
@@ -87,7 +91,7 @@ module.exports = async (req, res) => {
         });
 
         const opData = await opRes.json();
-        return res.status(200).json({ status: "Success", owner: ownerName, sentFrom: senderPN, region: region });
+        return res.status(200).json({ status: "Success", owner: ownerName, sentFrom: senderPN, openphone: opData });
 
     } catch (err) {
         return res.status(500).json({ error: err.message });
