@@ -16,15 +16,17 @@ module.exports = async (req, res) => {
         const objectId = req.body.objectId || req.body.contactId;
         const isDealWorkflow = req.body.objectType === 'DEAL' || (req.body.objectId && !req.body.contactId);
 
-        let contactId, lead_region, deal_owner_id;
+        let contactId, lead_region, deal_owner_id, dog_name;
 
         if (isDealWorkflow) {
-            const dealRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${objectId}?properties=lead_region,hubspot_owner_id&associations=contacts`, {
+            // Added k9___dog_name to the property list here
+            const dealRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${objectId}?properties=lead_region,hubspot_owner_id,k9___dog_name&associations=contacts`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
             const dealData = await dealRes.json();
             lead_region = dealData.properties.lead_region;
             deal_owner_id = dealData.properties.hubspot_owner_id;
+            dog_name = dealData.properties.k9___dog_name;
             contactId = dealData.associations?.contacts?.results[0]?.id;
         } else {
             contactId = objectId;
@@ -34,25 +36,25 @@ module.exports = async (req, res) => {
             const contactData = await contactRes.json();
             const dealId = contactData.associations?.deals?.results[0]?.id;
             if (dealId) {
-                const dealRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${dealId}?properties=lead_region,hubspot_owner_id`, {
+                // Added k9___dog_name to the property list here too
+                const dealRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${dealId}?properties=lead_region,hubspot_owner_id,k9___dog_name`, {
                     headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
                 });
                 const dealData = await dealRes.json();
                 lead_region = dealData.properties.lead_region;
                 deal_owner_id = dealData.properties.hubspot_owner_id;
+                dog_name = dealData.properties.k9___dog_name;
             }
         }
 
         if (!contactId) return res.status(200).json({ message: "No contact identified" });
 
-        // Get Contact details
         const hsRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone`, {
             headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
         });
         const contactData = await hsRes.json();
         const { firstname, phone } = contactData.properties;
 
-        // Get Owner Name for the text message
         let ownerName = "Team";
         if (deal_owner_id) {
             const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${deal_owner_id}`, {
@@ -64,28 +66,19 @@ module.exports = async (req, res) => {
             }
         }
 
-        // --- STRICT ROUTING LOGIC ---
         const ownerIdStr = deal_owner_id ? deal_owner_id.toString() : null;
-        
-        if (!ownerIdStr || !phoneMap[ownerIdStr]) {
-            return res.status(400).json({ error: `Owner ID ${ownerIdStr} not found in phoneMap mapping.` });
-        }
+        if (!ownerIdStr || !phoneMap[ownerIdStr]) return res.status(400).json({ error: `Owner ID ${ownerIdStr} not found.` });
+        if (!lead_region) return res.status(400).json({ error: "Lead Region missing." });
 
-        if (!lead_region) {
-            return res.status(400).json({ error: "Lead Region is missing from HubSpot data." });
-        }
+        const senderPN = phoneMap[ownerIdStr][lead_region];
+        if (!senderPN) return res.status(400).json({ error: `Region '${lead_region}' not mapped.` });
 
-        const ownerNumbers = phoneMap[ownerIdStr];
-        const senderPN = ownerNumbers[lead_region];
-
-        if (!senderPN) {
-            return res.status(400).json({ error: `Region '${lead_region}' is not mapped for owner ${ownerName} (${ownerIdStr}).` });
-        }
-
-        console.log(`STRICT ROUTE SUCCESS: Owner: ${ownerName}, Region: ${lead_region}, PN: ${senderPN}`);
-
-        // Clean phone and send via OpenPhone
         const cleanPhone = `+1${phone.replace(/\D/g, '').slice(-10)}`;
+        
+        // Logic for dog name vs generic "your dog"
+        const dogReference = dog_name ? dog_name : "your dog";
+        const messageText = `Hi ${firstname || 'there'}! This is ${ownerName} from Dogwise Academy. We received your training request, I’d love to learn more about ${dogReference} and what you're working on. Would you prefer a quick call, or to chat here over text?`;
+
         const opRes = await fetch('https://api.openphone.com/v1/messages', {
             method: 'POST',
             headers: { 
@@ -93,7 +86,7 @@ module.exports = async (req, res) => {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                content: `Hi ${firstname || 'there'}, it's ${ownerName} from Dogwise Academy. I got your form asking for help with dog training. Call back when you can, or if texting's easier I'd love to hear more about your dog!`,
+                content: messageText,
                 from: senderPN, 
                 to: [cleanPhone]
             })
