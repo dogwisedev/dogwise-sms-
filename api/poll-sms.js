@@ -1,5 +1,4 @@
 module.exports = async (req, res) => {
-    // Note: We allow GET for manual testing in browser, cron uses GET by default
     const { HUBSPOT_ACCESS_TOKEN, OPENPHONE_API_KEY } = process.env;
 
     const phoneMap = {
@@ -12,60 +11,63 @@ module.exports = async (req, res) => {
         "89704240": { "East Coast": "PNItsh7bWS", "West Coast": "PNItsh7bWS", "Florida": "PNItsh7bWS" }, // KLOIE
     };
 
+    let processedResults = [];
+
     try {
-        // 1. SEARCH: Find up to 10 deals where status is "Ready"
-        const searchRes = await fetch('https://api.hubapi.com/crm/v3/objects/deals/search', {
+        // --- SWEEP 1: FIRST CONTACT TEXTS ---
+        const firstSearch = await fetch('https://api.hubapi.com/crm/v3/objects/deals/search', {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`,
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                filterGroups: [{
-                    filters: [{ propertyName: 'first_text_staus', operator: 'EQ', value: 'Ready' }]
-                }],
+                filterGroups: [{ filters: [{ propertyName: 'first_text_staus', operator: 'EQ', value: 'Ready' }] }],
                 properties: ['lead_region', 'hubspot_owner_id', 'k9___dog_name'],
                 limit: 10
             })
         });
+        const firstData = await firstSearch.json();
+        const firstDeals = firstData.results || [];
 
-        const searchData = await searchRes.json();
-        const deals = searchData.results || [];
+        // --- SWEEP 2: ONGOING CHECK-IN TEXTS ---
+        const ongoingSearch = await fetch('https://api.hubapi.com/crm/v3/objects/deals/search', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                filterGroups: [{ filters: [{ propertyName: 'ongoing_text_ready_to_send', operator: 'EQ', value: 'Ready' }] }],
+                properties: ['lead_region', 'hubspot_owner_id', 'k9___dog_name', 'ongoing_text_email_template'],
+                limit: 10
+            })
+        });
+        const ongoingData = await ongoingSearch.json();
+        const ongoingDeals = ongoingData.results || [];
 
-        if (deals.length === 0) {
-            return res.status(200).json({ message: "No deals found with status 'Ready'." });
+        const allDealsToProcess = [
+            ...firstDeals.map(d => ({ ...d, type: 'FIRST' })),
+            ...ongoingDeals.map(d => ({ ...d, type: 'ONGOING' }))
+        ];
+
+        if (allDealsToProcess.length === 0) {
+            return res.status(200).json({ message: "No deals found to process." });
         }
 
-        let processed = [];
+        for (const deal of allDealsToProcess) {
+            const { lead_region, hubspot_owner_id, k9___dog_name, ongoing_text_email_template } = deal.properties;
 
-        for (const deal of deals) {
-            const { lead_region, hubspot_owner_id, k9___dog_name } = deal.properties;
-
-            // 2. GET CONTACT ASSOCIATION
+            // Get Contact
             const assocRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}/associations/contacts`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
             const assocData = await assocRes.json();
             const contactId = assocData.results?.[0]?.id;
+            if (!contactId) continue;
 
-            if (!contactId) {
-                console.log(`No contact for deal ${deal.id}`);
-                continue;
-            }
-
-            // 3. GET CONTACT DETAILS
-            const hsRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone`, {
+            const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone,email`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
-            const contactData = await hsRes.json();
-            const { firstname, phone } = contactData.properties;
+            const contactData = await contactRes.json();
+            const { firstname, phone, email } = contactData.properties;
+            if (!phone) continue;
 
-            if (!phone) {
-                console.log(`No phone for contact ${contactId}`);
-                continue;
-            }
-
-            // 4. OWNER NAME LOOKUP
+            // Get Owner Name
             let ownerName = "Team";
             if (hubspot_owner_id) {
                 const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${hubspot_owner_id}`, {
@@ -77,55 +79,48 @@ module.exports = async (req, res) => {
                 }
             }
 
-            // 5. ROUTING LOGIC
-            const ownerIdStr = hubspot_owner_id ? hubspot_owner_id.toString() : null;
-            if (ownerIdStr && phoneMap[ownerIdStr] && lead_region && phoneMap[ownerIdStr][lead_region]) {
-                
+            // Route & Message Logic
+            const ownerIdStr = hubspot_owner_id?.toString();
+            if (ownerIdStr && phoneMap[ownerIdStr]?.[lead_region]) {
                 const senderPN = phoneMap[ownerIdStr][lead_region];
                 const cleanPhone = `+1${phone.replace(/\D/g, '').slice(-10)}`;
-                const dogReference = k9___dog_name ? k9___dog_name : "your dog";
-                const messageText = `Hi ${firstname || 'there'}! This is ${ownerName} from Dogwise Academy. We received your training request, I’d love to learn more about ${dogReference} and what you're working on. Would you prefer a quick call, or to chat here over text?`;
+                const dogReference = k9___dog_name || "your dog";
 
-                // 6. SEND VIA OPENPHONE
+                let messageText = "";
+                if (deal.type === 'FIRST') {
+                    messageText = `Hi ${firstname || 'there'}! This is ${ownerName} from Dogwise Academy. We received your training request, I’d love to learn more about ${dogReference} and what you're working on. Would you prefer a quick call, or to chat here over text?`;
+                } else {
+                    // Ongoing Template Logic with Smart Replace
+                    messageText = (ongoing_text_email_template || "")
+                        .replace(/{firstname}/g, firstname || 'there')
+                        .replace(/{dogname}/g, dogReference)
+                        .replace(/{email}/g, email || 'your email')
+                        .replace(/{ownername}/g, ownerName);
+                }
+
+                if (!messageText) continue;
+
+                // Send to OpenPhone
                 const opRes = await fetch('https://api.openphone.com/v1/messages', {
                     method: 'POST',
-                    headers: { 
-                        'Authorization': OPENPHONE_API_KEY.trim(), 
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        content: messageText,
-                        from: senderPN, 
-                        to: [cleanPhone]
-                    })
+                    headers: { 'Authorization': OPENPHONE_API_KEY.trim(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: messageText, from: senderPN, to: [cleanPhone] })
                 });
 
                 if (opRes.ok) {
-                    // 7. SUCCESS: Update HubSpot to "Sent"
+                    // Update appropriate status property
+                    const updateProp = deal.type === 'FIRST' ? 'first_text_staus' : 'ongoing_text_ready_to_send';
                     await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
                         method: 'PATCH',
-                        headers: {
-                            'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ properties: { first_text_staus: 'Sent' } })
+                        headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ properties: { [updateProp]: 'Sent' } })
                     });
-                    processed.push({ dealId: deal.id, status: "Sent" });
-                } else {
-                    // ERROR: Update HubSpot to "Error"
-                    await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
-                        method: 'PATCH',
-                        headers: {
-                            'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ properties: { first_text_staus: 'Error' } })
-                    });
+                    processedResults.push({ dealId: deal.id, type: deal.type, status: "Sent" });
                 }
             }
         }
 
-        return res.status(200).json({ status: "Success", processedCount: processed.length, results: processed });
+        return res.status(200).json({ status: "Complete", processed: processedResults });
 
     } catch (err) {
         return res.status(500).json({ error: err.message });
