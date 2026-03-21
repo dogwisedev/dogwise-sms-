@@ -21,18 +21,38 @@ async function getLoc(zip) {
     return null;
 }
 
-// 2. BACKUP: Location Property Resolver (Returns null if no match found)
+// 2. BACKUP: Location Property Resolver (NOW UPDATED WITH FULL EAST COAST LIST)
 function resolveFromLocation(locString) {
     if (!locString) return null;
     const text = locString.toUpperCase();
 
-    if (text.includes("TEXAS") || /\bTX\b/.test(text)) return "Texas";
+    // Texas / West Coast / Florida / CO Priority Checks
+    if (text.includes("TEXAS") || /\bTX\b/.test(text) || text.includes("OKLAHOMA") || /\bOK\b/.test(text) || text.includes("ARKANSAS") || /\bAR\b/.test(text)) return "Texas";
     if (text.includes("FLORIDA") || /\bFL\b/.test(text)) return "Florida";
     if (text.includes("COLORADO") || /\bCO\b/.test(text)) return "CO";
-    if (text.includes("CALIFORNIA") || /\bCA\b/.test(text) || text.includes("WASHINGTON") || /\bWA\b/.test(text) || text.includes("ARIZONA") || /\bAZ\b/.test(text)) return "West Coast";
+    if (text.includes("CALIFORNIA") || /\bCA\b/.test(text) || text.includes("WASHINGTON") || /\bWA\b/.test(text) || text.includes("ARIZONA") || /\bAZ\b/.test(text) || /\bOR\b/.test(text) || /\bNV\b/.test(text)) return "West Coast";
     
-    // Check for general East Coast states as a catch-all before giving up
-    if (text.includes("NEW YORK") || /\bNY\b/.test(text) || text.includes("GEORGIA") || /\bGA\b/.test(text) || text.includes("CAROLINA")) return "East Coast";
+    // FULL EAST COAST SEARCH
+    const eastCoastStates = [
+        "CONNECTICUT", "DELAWARE", "GEORGIA", "ILLINOIS", "INDIANA", "IOWA", 
+        "MAINE", "MARYLAND", "MASSACHUSETTS", "MICHIGAN", "NEW HAMPSHIRE", 
+        "NEW JERSEY", "NEW YORK", "NORTH CAROLINA", "OHIO", "PENNSYLVANIA", 
+        "RHODE ISLAND", "SOUTH CAROLINA", "VERMONT", "VIRGINIA", "WEST VIRGINIA", 
+        "WISCONSIN", "DISTRICT OF COLUMBIA"
+    ];
+    
+    const eastCoastAbbrev = [
+        "CT", "DE", "GA", "IL", "IN", "IA", "ME", "MD", "MA", "MI", "NH", 
+        "NJ", "NY", "NC", "OH", "PA", "RI", "SC", "VT", "VA", "WV", "WI", "DC"
+    ];
+
+    // Check full names
+    if (eastCoastStates.some(state => text.includes(state))) return "East Coast";
+
+    // Check abbreviations
+    for (const abbrev of eastCoastAbbrev) {
+        if (new RegExp(`\\b${abbrev}\\b`).test(text)) return "East Coast";
+    }
 
     return null; 
 }
@@ -101,7 +121,6 @@ module.exports = async (req, res) => {
             const ownerIdStr = hubspot_owner_id?.toString();
             const senderPN = finalRegion ? phoneMap[ownerIdStr]?.[finalRegion] : null;
 
-            // SAFETY: If no region or no phone number found, mark as Error and skip
             if (!senderPN) {
                 console.log(`Failed to route deal ${deal.id}. Region: ${finalRegion}. Setting to Error.`);
                 await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
@@ -112,7 +131,6 @@ module.exports = async (req, res) => {
                 continue;
             }
 
-            // Get Owner Name
             let ownerName = "Team";
             const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${hubspot_owner_id}`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
@@ -140,7 +158,6 @@ module.exports = async (req, res) => {
                 processedResults.push({ id: deal.id, status: "Sent" });
             }
         }
-
         return res.status(200).json({ processed: processedResults });
     } catch (err) {
         return res.status(500).json({ error: err.message });
