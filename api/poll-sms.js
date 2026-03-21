@@ -1,13 +1,10 @@
 const cache = {};
 
-// 1. ZIP to State Fetcher (Now with Regex cleaning)
+// 1. ZIP to State Fetcher
 async function getLoc(zip) {
     if (!zip) return null;
-    
-    // Extracts the first 5 digits found in the string (e.g., "Houston, TX 77083" -> "77083")
     const match = zip.toString().match(/\d{5}/);
     const cleanZip = match ? match[0] : null;
-
     if (!cleanZip) return null;
     if (cache[cleanZip]) return cache[cleanZip];
 
@@ -22,6 +19,19 @@ async function getLoc(zip) {
         }
     } catch (e) { console.error("ZIP API Error:", e); }
     return null;
+}
+
+// 2. BACKUP: Location Property Resolver
+function resolveFromLocation(locString) {
+    if (!locString) return "East Coast";
+    const text = locString.toUpperCase();
+
+    if (text.includes("TEXAS") || text.includes(" TX") || text.includes(",TX")) return "Texas";
+    if (text.includes("FLORIDA") || text.includes(" FL") || text.includes(",FL")) return "Florida";
+    if (text.includes("COLORADO") || text.includes(" CO") || text.includes(",CO")) return "CO";
+    if (text.includes("CALIFORNIA") || text.includes(" CA") || text.includes("WASHINGTON") || text.includes(" WA") || text.includes("ARIZONA") || text.includes(" AZ")) return "West Coast";
+    
+    return "East Coast"; // Default fallback
 }
 
 module.exports = async (req, res) => {
@@ -40,14 +50,12 @@ module.exports = async (req, res) => {
     let processedResults = [];
 
     try {
-        console.log("--- STARTING ZIP-BASED SWEEP ---");
-
         const firstSearch = await fetch('https://api.hubapi.com/crm/v3/objects/deals/search', {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 filterGroups: [{ filters: [{ propertyName: 'first_text_staus', operator: 'EQ', value: 'Ready' }] }],
-                properties: ['hubspot_owner_id', 'k9___dog_name'],
+                properties: ['hubspot_owner_id', 'k9___dog_name', 'location'], // Added 'location' here
                 limit: 20
             })
         });
@@ -57,53 +65,45 @@ module.exports = async (req, res) => {
         if (deals.length === 0) return res.status(200).json({ message: "No deals ready." });
 
         for (const deal of deals) {
-            console.log(`--- Processing Deal: ${deal.id} ---`);
-            const { hubspot_owner_id, k9___dog_name } = deal.properties;
+            const { hubspot_owner_id, k9___dog_name, location } = deal.properties;
 
             const assocRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}/associations/contacts`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
             const assocData = await assocRes.json();
             const contactId = assocData.results?.[0]?.id;
-            if (!contactId) { console.log("Skip: No Contact"); continue; }
+            if (!contactId) continue;
 
-            const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone,zip_code,email`, {
+            const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone,zip_code`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
             const contactData = await contactRes.json();
             const { firstname, phone, zip_code } = contactData.properties;
 
-            if (!phone) { console.log("Skip: No Phone"); continue; }
+            if (!phone) continue;
 
-            // 2. Resolve Region via Zip (Now uses cleaned 5-digit string)
-            const stateAbb = await getLoc(zip_code);
+            // REGION LOGIC: Check Zip First, then Location Property
             let finalRegion = "";
+            const stateFromZip = await getLoc(zip_code);
 
-            if (!stateAbb) {
-                finalRegion = "East Coast"; 
-                console.log(`Zip ${zip_code} failed to resolve. Falling back to East Coast.`);
-            } else if (["TX", "OK", "AR"].includes(stateAbb)) {
-                finalRegion = "Texas";
-            } else if (stateAbb === "FL") {
-                finalRegion = "Florida";
-            } else if (stateAbb === "CO") {
-                finalRegion = "CO";
-            } else if (["CA", "WA", "AZ", "OR", "NV"].includes(stateAbb)) {
-                finalRegion = "West Coast";
+            if (stateFromZip) {
+                if (["TX", "OK", "AR"].includes(stateFromZip)) finalRegion = "Texas";
+                else if (stateFromZip === "FL") finalRegion = "Florida";
+                else if (stateFromZip === "CO") finalRegion = "CO";
+                else if (["CA", "WA", "AZ", "OR", "NV"].includes(stateFromZip)) finalRegion = "West Coast";
+                else finalRegion = "East Coast";
             } else {
-                finalRegion = "East Coast";
+                // If Zip fails, use the Location property text
+                finalRegion = resolveFromLocation(location);
+                console.log(`Zip failed, using Location: "${location}" -> Resolved to ${finalRegion}`);
             }
-
-            console.log(`Input: ${zip_code} -> State: ${stateAbb} -> Region: ${finalRegion}`);
 
             const ownerIdStr = hubspot_owner_id?.toString();
             const senderPN = phoneMap[ownerIdStr]?.[finalRegion];
 
-            if (!senderPN) {
-                console.log(`!!! ROUTING ERROR: No phone for Owner ${ownerIdStr} in ${finalRegion}`);
-                continue;
-            }
+            if (!senderPN) continue;
 
+            // Get Owner Name
             let ownerName = "Team";
             const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${hubspot_owner_id}`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
@@ -134,7 +134,6 @@ module.exports = async (req, res) => {
 
         return res.status(200).json({ processed: processedResults });
     } catch (err) {
-        console.log(`System Error: ${err.message}`);
         return res.status(500).json({ error: err.message });
     }
 };
