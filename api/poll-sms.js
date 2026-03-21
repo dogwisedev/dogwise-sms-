@@ -21,18 +21,20 @@ async function getLoc(zip) {
     return null;
 }
 
-// 2. BACKUP: Location Property Resolver (Enhanced for strings like "TX 77083")
+// 2. BACKUP: Location Property Resolver (Returns null if no match found)
 function resolveFromLocation(locString) {
-    if (!locString) return "East Coast";
+    if (!locString) return null;
     const text = locString.toUpperCase();
 
-    // Regex check: Looks for the state code as a standalone word anywhere in the text
     if (text.includes("TEXAS") || /\bTX\b/.test(text)) return "Texas";
     if (text.includes("FLORIDA") || /\bFL\b/.test(text)) return "Florida";
     if (text.includes("COLORADO") || /\bCO\b/.test(text)) return "CO";
     if (text.includes("CALIFORNIA") || /\bCA\b/.test(text) || text.includes("WASHINGTON") || /\bWA\b/.test(text) || text.includes("ARIZONA") || /\bAZ\b/.test(text)) return "West Coast";
     
-    return "East Coast"; 
+    // Check for general East Coast states as a catch-all before giving up
+    if (text.includes("NEW YORK") || /\bNY\b/.test(text) || text.includes("GEORGIA") || /\bGA\b/.test(text) || text.includes("CAROLINA")) return "East Coast";
+
+    return null; 
 }
 
 module.exports = async (req, res) => {
@@ -56,7 +58,7 @@ module.exports = async (req, res) => {
             headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 filterGroups: [{ filters: [{ propertyName: 'first_text_staus', operator: 'EQ', value: 'Ready' }] }],
-                properties: ['hubspot_owner_id', 'k9___dog_name', 'location'], // Added 'location' here
+                properties: ['hubspot_owner_id', 'k9___dog_name', 'location'],
                 limit: 20
             })
         });
@@ -83,8 +85,7 @@ module.exports = async (req, res) => {
 
             if (!phone) continue;
 
-            // REGION LOGIC: Check Zip First, then Location Property
-            let finalRegion = "";
+            let finalRegion = null;
             const stateFromZip = await getLoc(zip_code);
 
             if (stateFromZip) {
@@ -94,15 +95,22 @@ module.exports = async (req, res) => {
                 else if (["CA", "WA", "AZ", "OR", "NV"].includes(stateFromZip)) finalRegion = "West Coast";
                 else finalRegion = "East Coast";
             } else {
-                // If Zip fails, use the Location property text
                 finalRegion = resolveFromLocation(location);
-                console.log(`Zip failed, using Location: "${location}" -> Resolved to ${finalRegion}`);
             }
 
             const ownerIdStr = hubspot_owner_id?.toString();
-            const senderPN = phoneMap[ownerIdStr]?.[finalRegion];
+            const senderPN = finalRegion ? phoneMap[ownerIdStr]?.[finalRegion] : null;
 
-            if (!senderPN) continue;
+            // SAFETY: If no region or no phone number found, mark as Error and skip
+            if (!senderPN) {
+                console.log(`Failed to route deal ${deal.id}. Region: ${finalRegion}. Setting to Error.`);
+                await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ properties: { first_text_staus: 'Error' } })
+                });
+                continue;
+            }
 
             // Get Owner Name
             let ownerName = "Team";
