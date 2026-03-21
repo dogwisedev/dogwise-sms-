@@ -1,10 +1,16 @@
 const cache = {};
 
-// 1. ZIP to State Fetcher
+// 1. ZIP to State Fetcher (Now with Regex cleaning)
 async function getLoc(zip) {
     if (!zip) return null;
-    const cleanZip = zip.toString().trim();
+    
+    // Extracts the first 5 digits found in the string (e.g., "Houston, TX 77083" -> "77083")
+    const match = zip.toString().match(/\d{5}/);
+    const cleanZip = match ? match[0] : null;
+
+    if (!cleanZip) return null;
     if (cache[cleanZip]) return cache[cleanZip];
+
     try {
         const r = await fetch(`https://api.zippopotam.us/us/${cleanZip}`);
         if (!r.ok) return null;
@@ -36,7 +42,6 @@ module.exports = async (req, res) => {
     try {
         console.log("--- STARTING ZIP-BASED SWEEP ---");
 
-        // Fetch Deals
         const firstSearch = await fetch('https://api.hubapi.com/crm/v3/objects/deals/search', {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
@@ -55,7 +60,6 @@ module.exports = async (req, res) => {
             console.log(`--- Processing Deal: ${deal.id} ---`);
             const { hubspot_owner_id, k9___dog_name } = deal.properties;
 
-            // Get Contact and Zip
             const assocRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}/associations/contacts`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
@@ -67,16 +71,16 @@ module.exports = async (req, res) => {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
             const contactData = await contactRes.json();
-            const { firstname, phone, zip_code, email } = contactData.properties;
+            const { firstname, phone, zip_code } = contactData.properties;
 
             if (!phone) { console.log("Skip: No Phone"); continue; }
 
-            // 2. Resolve Region via Zip
+            // 2. Resolve Region via Zip (Now uses cleaned 5-digit string)
             const stateAbb = await getLoc(zip_code);
             let finalRegion = "";
 
             if (!stateAbb) {
-                finalRegion = "East Coast"; // Default fallback
+                finalRegion = "East Coast"; 
                 console.log(`Zip ${zip_code} failed to resolve. Falling back to East Coast.`);
             } else if (["TX", "OK", "AR"].includes(stateAbb)) {
                 finalRegion = "Texas";
@@ -84,13 +88,13 @@ module.exports = async (req, res) => {
                 finalRegion = "Florida";
             } else if (stateAbb === "CO") {
                 finalRegion = "CO";
-            } else if (["CA", "WA", "AZ"].includes(stateAbb)) {
+            } else if (["CA", "WA", "AZ", "OR", "NV"].includes(stateAbb)) {
                 finalRegion = "West Coast";
             } else {
-                finalRegion = "East Coast"; // Catch-all for NY, GA, SC, NC, VA, etc.
+                finalRegion = "East Coast";
             }
 
-            console.log(`Zip: ${zip_code} -> State: ${stateAbb} -> Region: ${finalRegion}`);
+            console.log(`Input: ${zip_code} -> State: ${stateAbb} -> Region: ${finalRegion}`);
 
             const ownerIdStr = hubspot_owner_id?.toString();
             const senderPN = phoneMap[ownerIdStr]?.[finalRegion];
@@ -100,7 +104,6 @@ module.exports = async (req, res) => {
                 continue;
             }
 
-            // 3. Prepare Owner Name and Message
             let ownerName = "Team";
             const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${hubspot_owner_id}`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
@@ -113,7 +116,6 @@ module.exports = async (req, res) => {
             const cleanPhone = `+1${phone.replace(/\D/g, '').slice(-10)}`;
             const messageText = `Hi ${firstname || 'there'}! This is ${ownerName} from Dogwise Academy. We received your training request, I’d love to learn more about ${k9___dog_name || 'your dog'} and what you're working on. Would you prefer a quick call, or to chat here over text?`;
 
-            // 4. Send SMS
             const opRes = await fetch('https://api.openphone.com/v1/messages', {
                 method: 'POST',
                 headers: { 'Authorization': OPENPHONE_API_KEY.trim(), 'Content-Type': 'application/json' },
