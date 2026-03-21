@@ -21,17 +21,18 @@ async function getLoc(zip) {
     return null;
 }
 
-// 2. BACKUP: Location Property Resolver
+// 2. BACKUP: Location Property Resolver (Enhanced for strings like "TX 77083")
 function resolveFromLocation(locString) {
     if (!locString) return "East Coast";
     const text = locString.toUpperCase();
 
-    if (text.includes("TEXAS") || text.includes(" TX") || text.includes(",TX")) return "Texas";
-    if (text.includes("FLORIDA") || text.includes(" FL") || text.includes(",FL")) return "Florida";
-    if (text.includes("COLORADO") || text.includes(" CO") || text.includes(",CO")) return "CO";
-    if (text.includes("CALIFORNIA") || text.includes(" CA") || text.includes("WASHINGTON") || text.includes(" WA") || text.includes("ARIZONA") || text.includes(" AZ")) return "West Coast";
+    // Regex check: Looks for the state code as a standalone word anywhere in the text
+    if (text.includes("TEXAS") || /\bTX\b/.test(text)) return "Texas";
+    if (text.includes("FLORIDA") || /\bFL\b/.test(text)) return "Florida";
+    if (text.includes("COLORADO") || /\bCO\b/.test(text)) return "CO";
+    if (text.includes("CALIFORNIA") || /\bCA\b/.test(text) || text.includes("WASHINGTON") || /\bWA\b/.test(text) || text.includes("ARIZONA") || /\bAZ\b/.test(text)) return "West Coast";
     
-    return "East Coast"; // Default fallback
+    return "East Coast"; 
 }
 
 module.exports = async (req, res) => {
