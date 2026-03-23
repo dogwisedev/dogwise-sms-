@@ -21,39 +21,21 @@ async function getLoc(zip) {
     return null;
 }
 
-// 2. BACKUP: Location Property Resolver (NOW UPDATED WITH FULL EAST COAST LIST)
+// 2. BACKUP: Location Property Resolver
 function resolveFromLocation(locString) {
     if (!locString) return null;
     const text = locString.toUpperCase();
 
-    // Texas / West Coast / Florida / CO Priority Checks
     if (text.includes("TEXAS") || /\bTX\b/.test(text) || text.includes("OKLAHOMA") || /\bOK\b/.test(text) || text.includes("ARKANSAS") || /\bAR\b/.test(text)) return "Texas";
     if (text.includes("FLORIDA") || /\bFL\b/.test(text)) return "Florida";
     if (text.includes("COLORADO") || /\bCO\b/.test(text)) return "CO";
     if (text.includes("CALIFORNIA") || /\bCA\b/.test(text) || text.includes("WASHINGTON") || /\bWA\b/.test(text) || text.includes("ARIZONA") || /\bAZ\b/.test(text) || /\bOR\b/.test(text) || /\bNV\b/.test(text)) return "West Coast";
     
-    // FULL EAST COAST SEARCH
-    const eastCoastStates = [
-        "CONNECTICUT", "DELAWARE", "GEORGIA", "ILLINOIS", "INDIANA", "IOWA", 
-        "MAINE", "MARYLAND", "MASSACHUSETTS", "MICHIGAN", "NEW HAMPSHIRE", 
-        "NEW JERSEY", "NEW YORK", "NORTH CAROLINA", "OHIO", "PENNSYLVANIA", 
-        "RHODE ISLAND", "SOUTH CAROLINA", "VERMONT", "VIRGINIA", "WEST VIRGINIA", 
-        "WISCONSIN", "DISTRICT OF COLUMBIA"
-    ];
-    
-    const eastCoastAbbrev = [
-        "CT", "DE", "GA", "IL", "IN", "IA", "ME", "MD", "MA", "MI", "NH", 
-        "NJ", "NY", "NC", "OH", "PA", "RI", "SC", "VT", "VA", "WV", "WI", "DC"
-    ];
+    const eastCoastStates = ["CONNECTICUT", "DELAWARE", "GEORGIA", "ILLINOIS", "INDIANA", "IOWA", "MAINE", "MARYLAND", "MASSACHUSETTS", "MICHIGAN", "NEW HAMPSHIRE", "NEW JERSEY", "NEW YORK", "NORTH CAROLINA", "OHIO", "PENNSYLVANIA", "RHODE ISLAND", "SOUTH CAROLINA", "VERMONT", "VIRGINIA", "WEST VIRGINIA", "WISCONSIN", "DISTRICT OF COLUMBIA"];
+    const eastCoastAbbrev = ["CT", "DE", "GA", "IL", "IN", "IA", "ME", "MD", "MA", "MI", "NH", "NJ", "NY", "NC", "OH", "PA", "RI", "SC", "VT", "VA", "WV", "WI", "DC"];
 
-    // Check full names
     if (eastCoastStates.some(state => text.includes(state))) return "East Coast";
-
-    // Check abbreviations
-    for (const abbrev of eastCoastAbbrev) {
-        if (new RegExp(`\\b${abbrev}\\b`).test(text)) return "East Coast";
-    }
-
+    for (const abbrev of eastCoastAbbrev) { if (new RegExp(`\\b${abbrev}\\b`).test(text)) return "East Coast"; }
     return null; 
 }
 
@@ -71,6 +53,7 @@ module.exports = async (req, res) => {
     };
 
     let processedResults = [];
+    const processedContacts = new Set(); // FIX 1: TRACK CONTACTS TO PREVENT DOUBLE TEXTS
 
     try {
         const firstSearch = await fetch('https://api.hubapi.com/crm/v3/objects/deals/search', {
@@ -97,6 +80,16 @@ module.exports = async (req, res) => {
             const contactId = assocData.results?.[0]?.id;
             if (!contactId) continue;
 
+            // FIX 1: Skip if we already handled this contact in this batch
+            if (processedContacts.has(contactId)) {
+                await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ properties: { first_text_staus: 'Sent' } })
+                });
+                continue;
+            }
+
             const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone,zip_code`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
@@ -118,11 +111,21 @@ module.exports = async (req, res) => {
                 finalRegion = resolveFromLocation(location);
             }
 
+            // FIX 2: REGION SAFEGUARD (If the code is running for West Coast, block East Coast)
+            if (finalRegion !== "West Coast") {
+                console.log(`Safeguard: Deal ${deal.id} is ${finalRegion}, skipping West Coast execution.`);
+                await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ properties: { first_text_staus: 'Error' } }) 
+                });
+                continue;
+            }
+
             const ownerIdStr = hubspot_owner_id?.toString();
-            const senderPN = finalRegion ? phoneMap[ownerIdStr]?.[finalRegion] : null;
+            const senderPN = phoneMap[ownerIdStr]?.[finalRegion];
 
             if (!senderPN) {
-                console.log(`Failed to route deal ${deal.id}. Region: ${finalRegion}. Setting to Error.`);
                 await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
                     method: 'PATCH',
                     headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
@@ -155,6 +158,7 @@ module.exports = async (req, res) => {
                     headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ properties: { first_text_staus: 'Sent' } })
                 });
+                processedContacts.add(contactId); // Mark contact as messaged
                 processedResults.push({ id: deal.id, status: "Sent" });
             }
         }
