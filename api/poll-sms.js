@@ -21,8 +21,28 @@ async function getLoc(zip) {
     return null;
 }
 
+// Helper to map State to Region
+function mapStateToRegion(state) {
+    if (["TX", "OK", "AR"].includes(state)) return "Texas";
+    if (state === "FL") return "Florida";
+    if (state === "CO") return "CO";
+    if (["CA", "WA", "AZ", "OR", "NV"].includes(state)) return "West Coast";
+    return "East Coast";
+}
+
+// Helper to find 5 digits in a string
+function extractZip(strings) {
+    for (const str of strings) {
+        if (!str) continue;
+        const match = str.toString().match(/\b\d{5}\b/);
+        if (match) return match[0];
+    }
+    return null;
+}
+
 module.exports = async (req, res) => {
     const { HUBSPOT_ACCESS_TOKEN, OPENPHONE_API_KEY } = process.env;
+    const authHeader = { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' };
 
     const phoneMap = {
         "75482998": { "East Coast": "PNItsh7bWS", "West Coast": "PNEcKEoyHX", "Florida": "PNceGqLFha", "Texas": "PNWT0HuaAy" },
@@ -38,9 +58,37 @@ module.exports = async (req, res) => {
     const processedContacts = new Set();
 
     try {
+        // --- NEW STAGE: SORTING ---
+        // Looks for deals you manually set to 'Yes'
+        const sortSearch = await fetch('https://api.hubapi.com/crm/v3/objects/deals/search', {
+            method: 'POST',
+            headers: authHeader,
+            body: JSON.stringify({
+                filterGroups: [{ filters: [{ propertyName: 'sort_region', operator: 'EQ', value: 'Yes' }] }],
+                properties: ['dealname', 'location'],
+                limit: 50
+            })
+        });
+        const sortData = await sortSearch.json();
+        const dealsToSort = sortData.results || [];
+
+        for (const deal of dealsToSort) {
+            const zip = extractZip([deal.properties.location, deal.properties.dealname]);
+            const state = await getLoc(zip);
+            const region = state ? mapStateToRegion(state) : "East Coast";
+
+            await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
+                method: 'PATCH',
+                headers: authHeader,
+                body: JSON.stringify({ properties: { lead_region: region, sort_region: 'No' } })
+            });
+            console.log(`Sorted Deal ${deal.id} to ${region}`);
+        }
+
+        // --- NORMAL STAGE: SENDING ---
         const firstSearch = await fetch('https://api.hubapi.com/crm/v3/objects/deals/search', {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
+            headers: authHeader,
             body: JSON.stringify({
                 filterGroups: [{ filters: [{ propertyName: 'first_text_staus', operator: 'EQ', value: 'Ready' }] }],
                 properties: ['hubspot_owner_id', 'k9___dog_name', 'lead_region'], 
@@ -50,14 +98,12 @@ module.exports = async (req, res) => {
         const firstData = await firstSearch.json();
         const deals = firstData.results || [];
 
-        if (deals.length === 0) return res.status(200).json({ message: "No deals ready." });
+        if (deals.length === 0 && dealsToSort.length === 0) return res.status(200).json({ message: "Nothing to sort or send." });
 
         for (const deal of deals) {
             const { hubspot_owner_id, k9___dog_name, lead_region } = deal.properties;
 
-            const assocRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}/associations/contacts`, {
-                headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
-            });
+            const assocRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}/associations/contacts`, { headers: authHeader });
             const assocData = await assocRes.json();
             const contactId = assocData.results?.[0]?.id;
             if (!contactId) continue;
@@ -65,62 +111,47 @@ module.exports = async (req, res) => {
             if (processedContacts.has(contactId)) {
                 await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
                     method: 'PATCH',
-                    headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
+                    headers: authHeader,
                     body: JSON.stringify({ properties: { first_text_staus: 'Sent' } })
                 });
                 continue;
             }
 
-            const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone,zip_code`, {
-                headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
-            });
+            const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone,zip_code`, { headers: authHeader });
             const contactData = await contactRes.json();
             const { firstname, phone, zip_code } = contactData.properties;
 
             if (!phone) continue;
 
-            // 1. Detect Region based on ZIP code
-            let zipDetectedRegion = null;
-            const stateFromZip = await getLoc(zip_code);
-            if (stateFromZip) {
-                if (["TX", "OK", "AR"].includes(stateFromZip)) zipDetectedRegion = "Texas";
-                else if (stateFromZip === "FL") zipDetectedRegion = "Florida";
-                else if (stateFromZip === "CO") zipDetectedRegion = "CO";
-                else if (["CA", "WA", "AZ", "OR", "NV"].includes(stateFromZip)) zipDetectedRegion = "West Coast";
-                else zipDetectedRegion = "East Coast";
-            }
+            // --- THE MISMATCH SAFEGUARD ---
+            const contactState = await getLoc(zip_code);
+            const contactRegion = contactState ? mapStateToRegion(contactState) : null;
 
-            // 2. SAFEGUARD: Blocking logic
-            // If lead_region and ZIP both exist, they MUST match.
-            if (zipDetectedRegion && lead_region && zipDetectedRegion !== lead_region) {
-                console.log(`Mismatch: HS Property is ${lead_region}, but ZIP is ${zipDetectedRegion}. Blocking.`);
+            if (contactRegion && lead_region && contactRegion !== lead_region) {
+                console.log(`Mismatch Safeguard: Blocking Deal ${deal.id}`);
                 await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
                     method: 'PATCH',
-                    headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
+                    headers: authHeader,
                     body: JSON.stringify({ properties: { first_text_staus: 'Error' } }) 
                 });
                 continue;
             }
 
-            // Fallback: If one is missing, use the one we have.
-            const finalRegion = lead_region || zipDetectedRegion;
-
+            const finalRegion = lead_region || contactRegion;
             const ownerIdStr = hubspot_owner_id?.toString();
             const senderPN = phoneMap[ownerIdStr]?.[finalRegion];
 
             if (!senderPN) {
                 await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
                     method: 'PATCH',
-                    headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
+                    headers: authHeader,
                     body: JSON.stringify({ properties: { first_text_staus: 'Error' } })
                 });
                 continue;
             }
 
             let ownerName = "Team";
-            const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${hubspot_owner_id}`, {
-                headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
-            });
+            const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${hubspot_owner_id}`, { headers: authHeader });
             if (ownerRes.ok) {
                 const ownerData = await ownerRes.json();
                 ownerName = ownerData.firstName || "Team";
@@ -138,7 +169,7 @@ module.exports = async (req, res) => {
             if (opRes.ok) {
                 await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
                     method: 'PATCH',
-                    headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
+                    headers: authHeader,
                     body: JSON.stringify({ properties: { first_text_staus: 'Sent' } })
                 });
                 processedContacts.add(contactId);
