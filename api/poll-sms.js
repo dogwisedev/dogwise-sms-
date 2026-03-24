@@ -135,15 +135,25 @@ module.exports = async (req, res) => {
                 body: JSON.stringify({ content: messageText, from: senderPN, to: [cleanPhone] })
             });
 
-            if (opRes.ok) {
-                await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
-                    method: 'PATCH',
-                    headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ properties: { first_text_staus: 'Sent' } })
-                });
-                processedContacts.add(contactId);
-                processedResults.push({ id: deal.id, status: "Sent" });
-            }
+if (opRes.ok) {
+    await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ properties: { first_text_staus: 'Sent' } })
+    });
+    processedContacts.add(contactId);
+    processedResults.push({ id: deal.id, status: "Sent" });
+} else {
+    console.error(`OpenPhone error: ${opRes.status}`);
+
+    await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ properties: { first_text_staus: 'Error' } })
+    });
+
+    processedResults.push({ id: deal.id, status: `Error (${opRes.status})` });
+}
         }
         return res.status(200).json({ processed: processedResults });
     } catch (err) {
