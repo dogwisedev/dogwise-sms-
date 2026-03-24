@@ -21,24 +21,6 @@ async function getLoc(zip) {
     return null;
 }
 
-// 2. BACKUP: Location Property Resolver
-function resolveFromLocation(locString) {
-    if (!locString) return null;
-    const text = locString.toUpperCase();
-
-    if (text.includes("TEXAS") || /\bTX\b/.test(text) || text.includes("OKLAHOMA") || /\bOK\b/.test(text) || text.includes("ARKANSAS") || /\bAR\b/.test(text)) return "Texas";
-    if (text.includes("FLORIDA") || /\bFL\b/.test(text)) return "Florida";
-    if (text.includes("COLORADO") || /\bCO\b/.test(text)) return "CO";
-    if (text.includes("CALIFORNIA") || /\bCA\b/.test(text) || text.includes("WASHINGTON") || /\bWA\b/.test(text) || text.includes("ARIZONA") || /\bAZ\b/.test(text) || /\bOR\b/.test(text) || /\bNV\b/.test(text)) return "West Coast";
-    
-    const eastCoastStates = ["CONNECTICUT", "DELAWARE", "GEORGIA", "ILLINOIS", "INDIANA", "IOWA", "MAINE", "MARYLAND", "MASSACHUSETTS", "MICHIGAN", "NEW HAMPSHIRE", "NEW JERSEY", "NEW YORK", "NORTH CAROLINA", "OHIO", "PENNSYLVANIA", "RHODE ISLAND", "SOUTH CAROLINA", "VERMONT", "VIRGINIA", "WEST VIRGINIA", "WISCONSIN", "DISTRICT OF COLUMBIA"];
-    const eastCoastAbbrev = ["CT", "DE", "GA", "IL", "IN", "IA", "ME", "MD", "MA", "MI", "NH", "NJ", "NY", "NC", "OH", "PA", "RI", "SC", "VT", "VA", "WV", "WI", "DC"];
-
-    if (eastCoastStates.some(state => text.includes(state))) return "East Coast";
-    for (const abbrev of eastCoastAbbrev) { if (new RegExp(`\\b${abbrev}\\b`).test(text)) return "East Coast"; }
-    return null; 
-}
-
 module.exports = async (req, res) => {
     const { HUBSPOT_ACCESS_TOKEN, OPENPHONE_API_KEY } = process.env;
 
@@ -53,7 +35,7 @@ module.exports = async (req, res) => {
     };
 
     let processedResults = [];
-    const processedContacts = new Set(); // FIX 1: TRACK CONTACTS TO PREVENT DOUBLE TEXTS
+    const processedContacts = new Set();
 
     try {
         const firstSearch = await fetch('https://api.hubapi.com/crm/v3/objects/deals/search', {
@@ -61,7 +43,7 @@ module.exports = async (req, res) => {
             headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 filterGroups: [{ filters: [{ propertyName: 'first_text_staus', operator: 'EQ', value: 'Ready' }] }],
-                properties: ['hubspot_owner_id', 'k9___dog_name', 'location'],
+                properties: ['hubspot_owner_id', 'k9___dog_name', 'lead_region'], 
                 limit: 20
             })
         });
@@ -71,7 +53,7 @@ module.exports = async (req, res) => {
         if (deals.length === 0) return res.status(200).json({ message: "No deals ready." });
 
         for (const deal of deals) {
-            const { hubspot_owner_id, k9___dog_name, location } = deal.properties;
+            const { hubspot_owner_id, k9___dog_name, lead_region } = deal.properties;
 
             const assocRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}/associations/contacts`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
@@ -80,7 +62,6 @@ module.exports = async (req, res) => {
             const contactId = assocData.results?.[0]?.id;
             if (!contactId) continue;
 
-            // FIX 1: Skip if we already handled this contact in this batch
             if (processedContacts.has(contactId)) {
                 await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
                     method: 'PATCH',
@@ -98,22 +79,21 @@ module.exports = async (req, res) => {
 
             if (!phone) continue;
 
-            let finalRegion = null;
+            // 1. Detect Region based on ZIP code
+            let zipDetectedRegion = null;
             const stateFromZip = await getLoc(zip_code);
-
             if (stateFromZip) {
-                if (["TX", "OK", "AR"].includes(stateFromZip)) finalRegion = "Texas";
-                else if (stateFromZip === "FL") finalRegion = "Florida";
-                else if (stateFromZip === "CO") finalRegion = "CO";
-                else if (["CA", "WA", "AZ", "OR", "NV"].includes(stateFromZip)) finalRegion = "West Coast";
-                else finalRegion = "East Coast";
-            } else {
-                finalRegion = resolveFromLocation(location);
+                if (["TX", "OK", "AR"].includes(stateFromZip)) zipDetectedRegion = "Texas";
+                else if (stateFromZip === "FL") zipDetectedRegion = "Florida";
+                else if (stateFromZip === "CO") zipDetectedRegion = "CO";
+                else if (["CA", "WA", "AZ", "OR", "NV"].includes(stateFromZip)) zipDetectedRegion = "West Coast";
+                else zipDetectedRegion = "East Coast";
             }
 
-            // FIX 2: REGION SAFEGUARD (If the code is running for West Coast, block East Coast)
-            if (finalRegion !== "West Coast") {
-                console.log(`Safeguard: Deal ${deal.id} is ${finalRegion}, skipping West Coast execution.`);
+            // 2. SAFEGUARD: Blocking logic
+            // If lead_region and ZIP both exist, they MUST match.
+            if (zipDetectedRegion && lead_region && zipDetectedRegion !== lead_region) {
+                console.log(`Mismatch: HS Property is ${lead_region}, but ZIP is ${zipDetectedRegion}. Blocking.`);
                 await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
                     method: 'PATCH',
                     headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
@@ -121,6 +101,9 @@ module.exports = async (req, res) => {
                 });
                 continue;
             }
+
+            // Fallback: If one is missing, use the one we have.
+            const finalRegion = lead_region || zipDetectedRegion;
 
             const ownerIdStr = hubspot_owner_id?.toString();
             const senderPN = phoneMap[ownerIdStr]?.[finalRegion];
@@ -158,7 +141,7 @@ module.exports = async (req, res) => {
                     headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ properties: { first_text_staus: 'Sent' } })
                 });
-                processedContacts.add(contactId); // Mark contact as messaged
+                processedContacts.add(contactId);
                 processedResults.push({ id: deal.id, status: "Sent" });
             }
         }
