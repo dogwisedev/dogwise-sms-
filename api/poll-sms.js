@@ -21,6 +21,25 @@ async function getLoc(zip) {
     return null;
 }
 
+// 🔧 helper: safe HubSpot PATCH with logging
+async function updateDeal(dealId, properties, token) {
+    const res = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${dealId}`, {
+        method: 'PATCH',
+        headers: {
+            'Authorization': `Bearer ${token.trim()}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ properties })
+    });
+
+    if (!res.ok) {
+        const err = await res.text();
+        console.error(`❌ PATCH FAILED for deal ${dealId}:`, res.status, err);
+    }
+
+    return res.ok;
+}
+
 module.exports = async (req, res) => {
     const { HUBSPOT_ACCESS_TOKEN, OPENPHONE_API_KEY } = process.env;
 
@@ -68,27 +87,23 @@ module.exports = async (req, res) => {
                 notes_last_contacted
             } = deal.properties;
 
-           // ⛔ IF already contacted → mark Sent, skip texting
-if (notes_last_contacted) {
-    console.log(`Skipping deal ${deal.id} — already contacted`);
+            // ✅ FIXED blocker (robust)
+            const alreadyContacted =
+                notes_last_contacted &&
+                notes_last_contacted !== "" &&
+                notes_last_contacted !== "null";
 
-    await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
-        method: 'PATCH',
-        headers: {
-            'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            properties: {
-                first_text_staus: 'Sent'
+            if (alreadyContacted) {
+                console.log(`Skipping deal ${deal.id} — already contacted`);
+
+                await updateDeal(deal.id, {
+                    first_text_staus: 'Sent'
+                }, HUBSPOT_ACCESS_TOKEN);
+
+                processedResults.push({ id: deal.id, status: "Already contacted → marked Sent" });
+                continue;
             }
-        })
-    });
 
-    processedResults.push({ id: deal.id, status: "Already contacted → marked Sent" });
-    continue;
-}
-            
             const assocRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}/associations/contacts`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
@@ -97,16 +112,9 @@ if (notes_last_contacted) {
             if (!contactId) continue;
 
             if (processedContacts.has(contactId)) {
-                await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
-                    method: 'PATCH',
-                    headers: {
-                        'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        properties: { first_text_staus: 'Sent' }
-                    })
-                });
+                await updateDeal(deal.id, {
+                    first_text_staus: 'Sent'
+                }, HUBSPOT_ACCESS_TOKEN);
                 continue;
             }
 
@@ -133,16 +141,10 @@ if (notes_last_contacted) {
             if (zipDetectedRegion && lead_region && zipDetectedRegion !== lead_region) {
                 console.log(`Mismatch: HS Property is ${lead_region}, but ZIP is ${zipDetectedRegion}. Blocking.`);
 
-                await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
-                    method: 'PATCH',
-                    headers: {
-                        'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        properties: { first_text_staus: 'Error' }
-                    })
-                });
+                await updateDeal(deal.id, {
+                    first_text_staus: 'Error'
+                }, HUBSPOT_ACCESS_TOKEN);
+
                 continue;
             }
 
@@ -151,16 +153,9 @@ if (notes_last_contacted) {
             const senderPN = phoneMap[ownerIdStr]?.[finalRegion];
 
             if (!senderPN) {
-                await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
-                    method: 'PATCH',
-                    headers: {
-                        'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        properties: { first_text_staus: 'Error' }
-                    })
-                });
+                await updateDeal(deal.id, {
+                    first_text_staus: 'Error'
+                }, HUBSPOT_ACCESS_TOKEN);
                 continue;
             }
 
@@ -190,20 +185,10 @@ if (notes_last_contacted) {
             });
 
             if (opRes.ok) {
-                // ✅ update deal notes_last_contacted
-                await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
-                    method: 'PATCH',
-                    headers: {
-                        'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        properties: {
-                            first_text_staus: 'Sent',
-                            notes_last_contacted: new Date().toISOString()
-                        }
-                    })
-                });
+                await updateDeal(deal.id, {
+                    first_text_staus: 'Sent',
+                    notes_last_contacted: new Date().toISOString()
+                }, HUBSPOT_ACCESS_TOKEN);
 
                 processedContacts.add(contactId);
                 processedResults.push({ id: deal.id, status: "Sent" });
@@ -211,16 +196,9 @@ if (notes_last_contacted) {
             } else {
                 console.error(`OpenPhone error: ${opRes.status}`);
 
-                await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
-                    method: 'PATCH',
-                    headers: {
-                        'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        properties: { first_text_staus: 'Error' }
-                    })
-                });
+                await updateDeal(deal.id, {
+                    first_text_staus: 'Error'
+                }, HUBSPOT_ACCESS_TOKEN);
 
                 processedResults.push({ id: deal.id, status: `Error (${opRes.status})` });
             }
