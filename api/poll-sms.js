@@ -48,7 +48,7 @@ module.exports = async (req, res) => {
                 filterGroups: [{
                     filters: [{ propertyName: 'first_text_staus', operator: 'EQ', value: 'Ready' }]
                 }],
-                properties: ['hubspot_owner_id', 'k9___dog_name', 'lead_region', 'last_contacted'],
+                properties: ['hubspot_owner_id', 'k9___dog_name', 'lead_region', 'notes_last_contacted'],
                 limit: 20
             })
         });
@@ -65,12 +65,12 @@ module.exports = async (req, res) => {
                 hubspot_owner_id,
                 k9___dog_name,
                 lead_region,
-                last_contacted
+                notes_last_contacted
             } = deal.properties;
 
             // ⛔ LAST CONTACTED CHECK (10 min window)
-            if (last_contacted) {
-                const lastTime = new Date(last_contacted).getTime();
+            if (notes_last_contacted) {
+                const lastTime = new Date(notes_last_contacted).getTime();
                 const now = Date.now();
                 const diffMinutes = (now - lastTime) / (1000 * 60);
 
@@ -196,7 +196,7 @@ module.exports = async (req, res) => {
             });
 
             if (opRes.ok) {
-                // ✅ update deal last_contacted
+                // ✅ update deal notes_last_contacted
                 await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
                     method: 'PATCH',
                     headers: {
@@ -206,7 +206,7 @@ module.exports = async (req, res) => {
                     body: JSON.stringify({
                         properties: {
                             first_text_staus: 'Sent',
-                            last_contacted: new Date().toISOString()
+                            notes_last_contacted: new Date().toISOString()
                         }
                     })
                 });
