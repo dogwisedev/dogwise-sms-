@@ -87,7 +87,7 @@ module.exports = async (req, res) => {
                 notes_last_contacted
             } = deal.properties;
 
-            // ✅ FIXED blocker (robust)
+            // ✅ Blocker (read-only field, safe to check)
             const alreadyContacted =
                 notes_last_contacted &&
                 notes_last_contacted !== "" &&
@@ -186,8 +186,7 @@ module.exports = async (req, res) => {
 
             if (opRes.ok) {
                 await updateDeal(deal.id, {
-                    first_text_staus: 'Sent',
-                    notes_last_contacted: new Date().toISOString()
+                    first_text_staus: 'Sent'
                 }, HUBSPOT_ACCESS_TOKEN);
 
                 processedContacts.add(contactId);
