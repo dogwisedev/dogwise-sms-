@@ -40,20 +40,60 @@ module.exports = async (req, res) => {
     try {
         const firstSearch = await fetch('https://api.hubapi.com/crm/v3/objects/deals/search', {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
+            headers: {
+                'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`,
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify({
-                filterGroups: [{ filters: [{ propertyName: 'first_text_staus', operator: 'EQ', value: 'Ready' }] }],
-                properties: ['hubspot_owner_id', 'k9___dog_name', 'lead_region'], 
+                filterGroups: [{
+                    filters: [{ propertyName: 'first_text_staus', operator: 'EQ', value: 'Ready' }]
+                }],
+                properties: ['hubspot_owner_id', 'k9___dog_name', 'lead_region', 'last_contacted'],
                 limit: 20
             })
         });
+
         const firstData = await firstSearch.json();
         const deals = firstData.results || [];
 
-        if (deals.length === 0) return res.status(200).json({ message: "No deals ready." });
+        if (deals.length === 0) {
+            return res.status(200).json({ message: "No deals ready." });
+        }
 
         for (const deal of deals) {
-            const { hubspot_owner_id, k9___dog_name, lead_region } = deal.properties;
+            const {
+                hubspot_owner_id,
+                k9___dog_name,
+                lead_region,
+                last_contacted
+            } = deal.properties;
+
+            // ⛔ LAST CONTACTED CHECK (10 min window)
+            if (last_contacted) {
+                const lastTime = new Date(last_contacted).getTime();
+                const now = Date.now();
+                const diffMinutes = (now - lastTime) / (1000 * 60);
+
+                if (diffMinutes < 10) {
+                    console.log(`Skipping deal ${deal.id} — contacted ${diffMinutes.toFixed(1)} min ago`);
+
+                    await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
+                        method: 'PATCH',
+                        headers: {
+                            'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            properties: {
+                                first_text_staus: 'Skipped - Recently Contacted'
+                            }
+                        })
+                    });
+
+                    processedResults.push({ id: deal.id, status: "Skipped - Recently Contacted" });
+                    continue;
+                }
+            }
 
             const assocRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}/associations/contacts`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
@@ -65,8 +105,13 @@ module.exports = async (req, res) => {
             if (processedContacts.has(contactId)) {
                 await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
                     method: 'PATCH',
-                    headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ properties: { first_text_staus: 'Sent' } })
+                    headers: {
+                        'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        properties: { first_text_staus: 'Sent' }
+                    })
                 });
                 continue;
             }
@@ -79,7 +124,7 @@ module.exports = async (req, res) => {
 
             if (!phone) continue;
 
-            // 1. Detect Region based on ZIP code
+            // Region detection
             let zipDetectedRegion = null;
             const stateFromZip = await getLoc(zip_code);
             if (stateFromZip) {
@@ -90,29 +135,37 @@ module.exports = async (req, res) => {
                 else zipDetectedRegion = "East Coast";
             }
 
-            // 2. SAFEGUARD: Blocking logic
-            // If lead_region and ZIP both exist, they MUST match.
+            // SAFEGUARD
             if (zipDetectedRegion && lead_region && zipDetectedRegion !== lead_region) {
                 console.log(`Mismatch: HS Property is ${lead_region}, but ZIP is ${zipDetectedRegion}. Blocking.`);
+
                 await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
                     method: 'PATCH',
-                    headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ properties: { first_text_staus: 'Error' } }) 
+                    headers: {
+                        'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        properties: { first_text_staus: 'Error' }
+                    })
                 });
                 continue;
             }
 
-            // Fallback: If one is missing, use the one we have.
             const finalRegion = lead_region || zipDetectedRegion;
-
             const ownerIdStr = hubspot_owner_id?.toString();
             const senderPN = phoneMap[ownerIdStr]?.[finalRegion];
 
             if (!senderPN) {
                 await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
                     method: 'PATCH',
-                    headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ properties: { first_text_staus: 'Error' } })
+                    headers: {
+                        'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        properties: { first_text_staus: 'Error' }
+                    })
                 });
                 continue;
             }
@@ -131,31 +184,56 @@ module.exports = async (req, res) => {
 
             const opRes = await fetch('https://api.openphone.com/v1/messages', {
                 method: 'POST',
-                headers: { 'Authorization': OPENPHONE_API_KEY.trim(), 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: messageText, from: senderPN, to: [cleanPhone] })
+                headers: {
+                    'Authorization': OPENPHONE_API_KEY.trim(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    content: messageText,
+                    from: senderPN,
+                    to: [cleanPhone]
+                })
             });
 
-if (opRes.ok) {
-    await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ properties: { first_text_staus: 'Sent' } })
-    });
-    processedContacts.add(contactId);
-    processedResults.push({ id: deal.id, status: "Sent" });
-} else {
-    console.error(`OpenPhone error: ${opRes.status}`);
+            if (opRes.ok) {
+                // ✅ update deal last_contacted
+                await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        properties: {
+                            first_text_staus: 'Sent',
+                            last_contacted: new Date().toISOString()
+                        }
+                    })
+                });
 
-    await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ properties: { first_text_staus: 'Error' } })
-    });
+                processedContacts.add(contactId);
+                processedResults.push({ id: deal.id, status: "Sent" });
 
-    processedResults.push({ id: deal.id, status: `Error (${opRes.status})` });
-}
+            } else {
+                console.error(`OpenPhone error: ${opRes.status}`);
+
+                await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        properties: { first_text_staus: 'Error' }
+                    })
+                });
+
+                processedResults.push({ id: deal.id, status: `Error (${opRes.status})` });
+            }
         }
+
         return res.status(200).json({ processed: processedResults });
+
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }
