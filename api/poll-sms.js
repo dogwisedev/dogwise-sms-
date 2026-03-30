@@ -68,33 +68,27 @@ module.exports = async (req, res) => {
                 notes_last_contacted
             } = deal.properties;
 
-            // ⛔ LAST CONTACTED CHECK (10 min window)
-            if (notes_last_contacted) {
-                const lastTime = new Date(notes_last_contacted).getTime();
-                const now = Date.now();
-                const diffMinutes = (now - lastTime) / (1000 * 60);
+           // ⛔ IF already contacted → mark Sent, skip texting
+if (notes_last_contacted) {
+    console.log(`Skipping deal ${deal.id} — already contacted`);
 
-                if (diffMinutes < 10) {
-                    console.log(`Skipping deal ${deal.id} — contacted ${diffMinutes.toFixed(1)} min ago`);
-
-                    await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
-                        method: 'PATCH',
-                        headers: {
-                            'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            properties: {
-                                first_text_staus: 'Skipped - Recently Contacted'
-                            }
-                        })
-                    });
-
-                    processedResults.push({ id: deal.id, status: "Skipped - Recently Contacted" });
-                    continue;
-                }
+    await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}`, {
+        method: 'PATCH',
+        headers: {
+            'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            properties: {
+                first_text_staus: 'Sent'
             }
+        })
+    });
 
+    processedResults.push({ id: deal.id, status: "Already contacted → marked Sent" });
+    continue;
+}
+            
             const assocRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}/associations/contacts`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
