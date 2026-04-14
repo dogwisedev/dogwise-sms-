@@ -110,12 +110,17 @@ module.exports = async (req, res) => {
                 continue;
             }
 
-            // Added 'breed' to the properties list to support your new message logic
-            const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone,zip_code,breed`, {
+            // ✅ Fetching the specific Breed internal name
+            const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone,zip_code,what_is_the_breed_of_the_dog_s__`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
             const contactData = await contactRes.json();
-            const { firstname, phone, zip_code, breed } = contactData.properties;
+            const { 
+                firstname, 
+                phone, 
+                zip_code, 
+                what_is_the_breed_of_the_dog_s__: breed 
+            } = contactData.properties;
 
             if (!phone) continue;
 
@@ -154,8 +159,10 @@ module.exports = async (req, res) => {
 
             const cleanPhone = `+1${phone.replace(/\D/g, '').slice(-10)}`;
             
-            //  New Text
+            // ✅ Logic for Dog Name vs Breed vs Generic
             const dogInfo = k9___dog_name || (breed ? `your ${breed}` : 'your pup');
+            
+            // ✅ Updated Message Text
             const messageText = `Hi ${firstname || 'there'}! This is ${ownerName} from Dogwise Academy — I was just reviewing the info you sent through about ${dogInfo}. A quick call is usually the easiest way to go over everything, but we can absolutely chat here too, just let me know what works best for you!`;
 
             const opRes = await fetch('https://api.openphone.com/v1/messages', {
