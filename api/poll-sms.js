@@ -1,4 +1,4 @@
-const cache = {};
+const cache = {}; 
 
 // 1. ZIP to State Fetcher
 async function getLoc(zip) {
