@@ -43,7 +43,7 @@ async function updateDeal(dealId, properties, token) {
 module.exports = async (req, res) => {
     const { HUBSPOT_ACCESS_TOKEN, OPENPHONE_API_KEY } = process.env;
 
-const phoneMap = {
+    const phoneMap = {
         "75482998": { "East Coast": "PNItsh7bWS", "West Coast": "PNEcKEoyHX", "Florida": "PNceGqLFha", "Texas": "PNWT0HuaAy" }, // Alma
         "89047041": { "East Coast": "PNhk6l4DYO", "West Coast": "PNYHBbwDjZ", "Florida": "PNDiOn7aMC", "Texas": "PNy8J5GulJ" }, // Emmalee
         "89704240": { "East Coast": "PNgxmHZMTt", "West Coast": "PNhj6p3vi9", "Florida": "PNnXbEIOB0", "Texas": "PNByzfsgGI" }, // Kloie
@@ -87,19 +87,13 @@ const phoneMap = {
                 notes_last_contacted
             } = deal.properties;
 
-            // ✅ Blocker (read-only field, safe to check)
             const alreadyContacted =
                 notes_last_contacted &&
                 notes_last_contacted !== "" &&
                 notes_last_contacted !== "null";
 
             if (alreadyContacted) {
-                console.log(`Skipping deal ${deal.id} — already contacted`);
-
-                await updateDeal(deal.id, {
-                    first_text_staus: 'Sent'
-                }, HUBSPOT_ACCESS_TOKEN);
-
+                await updateDeal(deal.id, { first_text_staus: 'Sent' }, HUBSPOT_ACCESS_TOKEN);
                 processedResults.push({ id: deal.id, status: "Already contacted → marked Sent" });
                 continue;
             }
@@ -112,21 +106,19 @@ const phoneMap = {
             if (!contactId) continue;
 
             if (processedContacts.has(contactId)) {
-                await updateDeal(deal.id, {
-                    first_text_staus: 'Sent'
-                }, HUBSPOT_ACCESS_TOKEN);
+                await updateDeal(deal.id, { first_text_staus: 'Sent' }, HUBSPOT_ACCESS_TOKEN);
                 continue;
             }
 
-            const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone,zip_code`, {
+            // Added 'breed' to the properties list to support your new message logic
+            const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone,zip_code,breed`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
             const contactData = await contactRes.json();
-            const { firstname, phone, zip_code } = contactData.properties;
+            const { firstname, phone, zip_code, breed } = contactData.properties;
 
             if (!phone) continue;
 
-            // Region detection
             let zipDetectedRegion = null;
             const stateFromZip = await getLoc(zip_code);
             if (stateFromZip) {
@@ -137,14 +129,8 @@ const phoneMap = {
                 else zipDetectedRegion = "East Coast";
             }
 
-            // SAFEGUARD
             if (zipDetectedRegion && lead_region && zipDetectedRegion !== lead_region) {
-                console.log(`Mismatch: HS Property is ${lead_region}, but ZIP is ${zipDetectedRegion}. Blocking.`);
-
-                await updateDeal(deal.id, {
-                    first_text_staus: 'Error'
-                }, HUBSPOT_ACCESS_TOKEN);
-
+                await updateDeal(deal.id, { first_text_staus: 'Error' }, HUBSPOT_ACCESS_TOKEN);
                 continue;
             }
 
@@ -153,9 +139,7 @@ const phoneMap = {
             const senderPN = phoneMap[ownerIdStr]?.[finalRegion];
 
             if (!senderPN) {
-                await updateDeal(deal.id, {
-                    first_text_staus: 'Error'
-                }, HUBSPOT_ACCESS_TOKEN);
+                await updateDeal(deal.id, { first_text_staus: 'Error' }, HUBSPOT_ACCESS_TOKEN);
                 continue;
             }
 
@@ -169,7 +153,10 @@ const phoneMap = {
             }
 
             const cleanPhone = `+1${phone.replace(/\D/g, '').slice(-10)}`;
-            const messageText = `Hi ${firstname || 'there'}! This is ${ownerName} from Dogwise Academy. We received your training request, I’d love to learn more about ${k9___dog_name || 'your dog'} and what you're working on. Would you prefer a quick call, or to chat here over text?`;
+            
+            //  New Text
+            const dogInfo = k9___dog_name || (breed ? `your ${breed}` : 'your pup');
+            const messageText = `Hi ${firstname || 'there'}! This is ${ownerName} from Dogwise Academy — I was just reviewing the info you sent through about ${dogInfo}. A quick call is usually the easiest way to go over everything, but we can absolutely chat here too, just let me know what works best for you!`;
 
             const opRes = await fetch('https://api.openphone.com/v1/messages', {
                 method: 'POST',
@@ -185,20 +172,11 @@ const phoneMap = {
             });
 
             if (opRes.ok) {
-                await updateDeal(deal.id, {
-                    first_text_staus: 'Sent'
-                }, HUBSPOT_ACCESS_TOKEN);
-
+                await updateDeal(deal.id, { first_text_staus: 'Sent' }, HUBSPOT_ACCESS_TOKEN);
                 processedContacts.add(contactId);
                 processedResults.push({ id: deal.id, status: "Sent" });
-
             } else {
-                console.error(`OpenPhone error: ${opRes.status}`);
-
-                await updateDeal(deal.id, {
-                    first_text_staus: 'Error'
-                }, HUBSPOT_ACCESS_TOKEN);
-
+                await updateDeal(deal.id, { first_text_staus: 'Error' }, HUBSPOT_ACCESS_TOKEN);
                 processedResults.push({ id: deal.id, status: `Error (${opRes.status})` });
             }
         }
