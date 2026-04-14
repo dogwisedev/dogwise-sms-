@@ -163,7 +163,7 @@ module.exports = async (req, res) => {
             const dogInfo = k9___dog_name || (breed ? `your ${breed}` : 'your pup');
             
             // ✅ Updated Message Text
-            const messageText = `Hi ${firstname || 'there'}! This is ${ownerName} from Dogwise Academy — I was just reviewing the info you sent through about ${dogInfo}. A quick call is usually the easiest way to go over everything, but we can absolutely chat here too, just let me know what works best for you!`;
+            const messageText = `Hi ${firstname || 'there'}! This is ${ownerName} from Dogwise Academy, I was just reviewing the info you sent through about ${dogInfo}. A quick call is usually the easiest way to go over everything, but we can absolutely chat here too, just let me know what works best for you!`;
 
             const opRes = await fetch('https://api.openphone.com/v1/messages', {
                 method: 'POST',
