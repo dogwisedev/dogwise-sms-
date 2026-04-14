@@ -21,7 +21,7 @@ async function getLoc(zip) {
     return null;
 }
 
-// 🔧 helper: safe HubSpot PATCH with logging
+// 🔧 helper: safe HubSpot PATCH
 async function updateDeal(dealId, properties, token) {
     const res = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${dealId}`, {
         method: 'PATCH',
@@ -31,12 +31,6 @@ async function updateDeal(dealId, properties, token) {
         },
         body: JSON.stringify({ properties })
     });
-
-    if (!res.ok) {
-        const err = await res.text();
-        console.error(`❌ PATCH FAILED for deal ${dealId}:`, res.status, err);
-    }
-
     return res.ok;
 }
 
@@ -67,7 +61,14 @@ module.exports = async (req, res) => {
                 filterGroups: [{
                     filters: [{ propertyName: 'first_text_staus', operator: 'EQ', value: 'Ready' }]
                 }],
-                properties: ['hubspot_owner_id', 'k9___dog_name', 'lead_region', 'notes_last_contacted'],
+                // ✅ Added Breed to the properties pulled from the Deal
+                properties: [
+                    'hubspot_owner_id', 
+                    'k9___dog_name', 
+                    'lead_region', 
+                    'notes_last_contacted', 
+                    'what_is_the_breed_of_the_dog_s__'
+                ],
                 limit: 20
             })
         });
@@ -75,22 +76,18 @@ module.exports = async (req, res) => {
         const firstData = await firstSearch.json();
         const deals = firstData.results || [];
 
-        if (deals.length === 0) {
-            return res.status(200).json({ message: "No deals ready." });
-        }
+        if (deals.length === 0) return res.status(200).json({ message: "No deals ready." });
 
         for (const deal of deals) {
             const {
                 hubspot_owner_id,
                 k9___dog_name,
                 lead_region,
-                notes_last_contacted
+                notes_last_contacted,
+                what_is_the_breed_of_the_dog_s__: breed // Pulled from Deal record
             } = deal.properties;
 
-            const alreadyContacted =
-                notes_last_contacted &&
-                notes_last_contacted !== "" &&
-                notes_last_contacted !== "null";
+            const alreadyContacted = notes_last_contacted && notes_last_contacted !== "" && notes_last_contacted !== "null";
 
             if (alreadyContacted) {
                 await updateDeal(deal.id, { first_text_staus: 'Sent' }, HUBSPOT_ACCESS_TOKEN);
@@ -104,20 +101,16 @@ module.exports = async (req, res) => {
             const contactId = assocData.results?.[0]?.id;
             if (!contactId) continue;
 
-            const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone,zip_code,what_is_the_breed_of_the_dog_s__`, {
+            if (processedContacts.has(contactId)) {
+                await updateDeal(deal.id, { first_text_staus: 'Sent' }, HUBSPOT_ACCESS_TOKEN);
+                continue;
+            }
+
+            const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone,zip_code`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
             const contactData = await contactRes.json();
-            
-            // 🔍 DEBUG LOG: See exactly what HubSpot is sending
-            console.log(`DEBUG: Properties for Contact ${contactId}:`, JSON.stringify(contactData.properties));
-
-            const { 
-                firstname, 
-                phone, 
-                zip_code, 
-                what_is_the_breed_of_the_dog_s__: breed 
-            } = contactData.properties;
+            const { firstname, phone, zip_code } = contactData.properties;
 
             if (!phone) continue;
 
@@ -150,14 +143,8 @@ module.exports = async (req, res) => {
 
             const cleanPhone = `+1${phone.replace(/\D/g, '').slice(-10)}`;
             
-            // ✅ IMPROVED FALLBACK LOGIC
-            // Checks if name exists, then if breed exists and isn't just whitespace
-            const hasDogName = k9___dog_name && k9___dog_name.trim().length > 0;
-            const hasBreed = breed && breed.trim().length > 0;
-
-            const dogInfo = hasDogName 
-                ? k9___dog_name 
-                : (hasBreed ? `your ${breed}` : 'your pup');
+            // ✅ PRIORITY: Dog Name > Breed > "your pup"
+            const dogInfo = k9___dog_name || (breed ? `your ${breed}` : 'your pup');
 
             const messageText = `Hi ${firstname || 'there'}! This is ${ownerName} from Dogwise Academy — I was just reviewing the info you sent through about ${dogInfo}. A quick call is usually the easiest way to go over everything, but we can absolutely chat here too, just let me know what works best for you!`;
 
@@ -176,6 +163,7 @@ module.exports = async (req, res) => {
 
             if (opRes.ok) {
                 await updateDeal(deal.id, { first_text_staus: 'Sent' }, HUBSPOT_ACCESS_TOKEN);
+                processedContacts.add(contactId);
                 processedResults.push({ id: deal.id, status: "Sent" });
             } else {
                 await updateDeal(deal.id, { first_text_staus: 'Error' }, HUBSPOT_ACCESS_TOKEN);
