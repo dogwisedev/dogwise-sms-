@@ -1,4 +1,4 @@
-const cache = {}; 
+const cache = {};
 
 // 1. ZIP to State Fetcher
 async function getLoc(zip) {
@@ -94,7 +94,6 @@ module.exports = async (req, res) => {
 
             if (alreadyContacted) {
                 await updateDeal(deal.id, { first_text_staus: 'Sent' }, HUBSPOT_ACCESS_TOKEN);
-                processedResults.push({ id: deal.id, status: "Already contacted → marked Sent" });
                 continue;
             }
 
@@ -105,16 +104,14 @@ module.exports = async (req, res) => {
             const contactId = assocData.results?.[0]?.id;
             if (!contactId) continue;
 
-            if (processedContacts.has(contactId)) {
-                await updateDeal(deal.id, { first_text_staus: 'Sent' }, HUBSPOT_ACCESS_TOKEN);
-                continue;
-            }
-
-            // ✅ Fetching the specific Breed internal name
             const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone,zip_code,what_is_the_breed_of_the_dog_s__`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
             const contactData = await contactRes.json();
+            
+            // 🔍 DEBUG LOG: See exactly what HubSpot is sending
+            console.log(`DEBUG: Properties for Contact ${contactId}:`, JSON.stringify(contactData.properties));
+
             const { 
                 firstname, 
                 phone, 
@@ -134,14 +131,8 @@ module.exports = async (req, res) => {
                 else zipDetectedRegion = "East Coast";
             }
 
-            if (zipDetectedRegion && lead_region && zipDetectedRegion !== lead_region) {
-                await updateDeal(deal.id, { first_text_staus: 'Error' }, HUBSPOT_ACCESS_TOKEN);
-                continue;
-            }
-
             const finalRegion = lead_region || zipDetectedRegion;
-            const ownerIdStr = hubspot_owner_id?.toString();
-            const senderPN = phoneMap[ownerIdStr]?.[finalRegion];
+            const senderPN = phoneMap[hubspot_owner_id?.toString()]?.[finalRegion];
 
             if (!senderPN) {
                 await updateDeal(deal.id, { first_text_staus: 'Error' }, HUBSPOT_ACCESS_TOKEN);
@@ -159,11 +150,16 @@ module.exports = async (req, res) => {
 
             const cleanPhone = `+1${phone.replace(/\D/g, '').slice(-10)}`;
             
-            // ✅ Logic for Dog Name vs Breed vs Generic
-            const dogInfo = k9___dog_name || (breed ? `your ${breed}` : 'your pup');
-            
-            // ✅ Updated Message Text
-            const messageText = `Hi ${firstname || 'there'}! This is ${ownerName} from Dogwise Academy, I was just reviewing the info you sent through about ${dogInfo}. A quick call is usually the easiest way to go over everything, but we can absolutely chat here too, just let me know what works best for you!`;
+            // ✅ IMPROVED FALLBACK LOGIC
+            // Checks if name exists, then if breed exists and isn't just whitespace
+            const hasDogName = k9___dog_name && k9___dog_name.trim().length > 0;
+            const hasBreed = breed && breed.trim().length > 0;
+
+            const dogInfo = hasDogName 
+                ? k9___dog_name 
+                : (hasBreed ? `your ${breed}` : 'your pup');
+
+            const messageText = `Hi ${firstname || 'there'}! This is ${ownerName} from Dogwise Academy — I was just reviewing the info you sent through about ${dogInfo}. A quick call is usually the easiest way to go over everything, but we can absolutely chat here too, just let me know what works best for you!`;
 
             const opRes = await fetch('https://api.openphone.com/v1/messages', {
                 method: 'POST',
@@ -180,11 +176,9 @@ module.exports = async (req, res) => {
 
             if (opRes.ok) {
                 await updateDeal(deal.id, { first_text_staus: 'Sent' }, HUBSPOT_ACCESS_TOKEN);
-                processedContacts.add(contactId);
                 processedResults.push({ id: deal.id, status: "Sent" });
             } else {
                 await updateDeal(deal.id, { first_text_staus: 'Error' }, HUBSPOT_ACCESS_TOKEN);
-                processedResults.push({ id: deal.id, status: `Error (${opRes.status})` });
             }
         }
 
