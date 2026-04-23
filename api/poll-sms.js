@@ -61,7 +61,6 @@ module.exports = async (req, res) => {
                 filterGroups: [{
                     filters: [{ propertyName: 'first_text_staus', operator: 'EQ', value: 'Ready' }]
                 }],
-                // ✅ Added Breed to the properties pulled from the Deal
                 properties: [
                     'hubspot_owner_id', 
                     'k9___dog_name', 
@@ -84,7 +83,7 @@ module.exports = async (req, res) => {
                 k9___dog_name,
                 lead_region,
                 notes_last_contacted,
-                what_is_the_breed_of_the_dog_s__: breed // Pulled from Deal record
+                what_is_the_breed_of_the_dog_s__: breed 
             } = deal.properties;
 
             const alreadyContacted = notes_last_contacted && notes_last_contacted !== "" && notes_last_contacted !== "null";
@@ -143,10 +142,11 @@ module.exports = async (req, res) => {
 
             const cleanPhone = `+1${phone.replace(/\D/g, '').slice(-10)}`;
             
-            // ✅ PRIORITY: Dog Name > Breed > "your pup"
-            const dogInfo = k9___dog_name || (breed ? `your ${breed}` : 'your pup');
+            // ✅ PRIORITY: Dog Name > Breed > "your dog"
+            const dogInfo = k9___dog_name || (breed ? `your ${breed}` : 'your dog');
 
-            const messageText = `Hi ${firstname || 'there'}! This is ${ownerName} from Dogwise Academy, I was just reviewing the info you sent through about ${dogInfo}. A quick call is usually the easiest way to go over everything, but we can absolutely chat here too, just let me know what works best for you!`;
+            // ✅ UPDATED TEXT
+            const messageText = `Hi ${firstname || 'there'}! This is ${ownerName} from Dogwise Academy. I just reviewed the information you shared about ${dogInfo}. I have a few recommendations that could help. A quick 5–10 min call is usually easiest to walk you through it, just to give you some clarity. Do you have a few minutes today?`;
 
             const opRes = await fetch('https://api.openphone.com/v1/messages', {
                 method: 'POST',
