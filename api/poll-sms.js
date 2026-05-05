@@ -1,5 +1,6 @@
 const cache = {};
 
+// Keep your new formatting function
 function toProperCase(str) {
     if (!str) return "";
     return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
@@ -34,21 +35,11 @@ async function updateDeal(dealId, properties, token) {
         },
         body: JSON.stringify({ properties })
     });
-    
-    if (!res.ok) {
-        const errorText = await res.text();
-        console.error(`HubSpot Update Failed [${res.status}]:`, errorText);
-    }
     return res.ok;
 }
 
 module.exports = async (req, res) => {
     const { HUBSPOT_ACCESS_TOKEN, OPENPHONE_API_KEY } = process.env;
-
-    if (!HUBSPOT_ACCESS_TOKEN || !OPENPHONE_API_KEY) {
-        console.error("Missing Environment Variables");
-        return res.status(500).json({ error: "Configuration missing" });
-    }
 
     const phoneMap = {
         "75482998": { "East Coast": "PNItsh7bWS", "West Coast": "PNEcKEoyHX", "Florida": "PNceGqLFha", "Texas": "PNWT0HuaAy" },
@@ -75,16 +66,16 @@ module.exports = async (req, res) => {
                 filterGroups: [{
                     filters: [{ propertyName: 'first_text_staus', operator: 'EQ', value: 'Ready' }]
                 }],
-                properties: ['hubspot_owner_id', 'k9___dog_name', 'lead_region', 'notes_last_contacted', 'what_is_the_breed_of_the_dog_s__'],
+                properties: [
+                    'hubspot_owner_id', 
+                    'k9___dog_name', 
+                    'lead_region', 
+                    'notes_last_contacted', 
+                    'what_is_the_breed_of_the_dog_s__'
+                ],
                 limit: 20
             })
         });
-
-        if (!firstSearch.ok) {
-            const errBody = await firstSearch.text();
-            console.error(`HubSpot Search Failed [${firstSearch.status}]:`, errBody);
-            return res.status(firstSearch.status).json({ error: "HubSpot search failed" });
-        }
 
         const firstData = await firstSearch.json();
         const deals = firstData.results || [];
@@ -92,9 +83,17 @@ module.exports = async (req, res) => {
         if (deals.length === 0) return res.status(200).json({ message: "No deals ready." });
 
         for (const deal of deals) {
-            const { hubspot_owner_id: ownerId, k9___dog_name, lead_region, notes_last_contacted, what_is_the_breed_of_the_dog_s__: breed } = deal.properties;
+            // BACK TO ORIGINAL: Using exact property names from your working version
+            const {
+                hubspot_owner_id,
+                k9___dog_name,
+                lead_region,
+                notes_last_contacted,
+                what_is_the_breed_of_the_dog_s__: breed 
+            } = deal.properties;
 
             const alreadyContacted = notes_last_contacted && notes_last_contacted !== "" && notes_last_contacted !== "null";
+
             if (alreadyContacted) {
                 await updateDeal(deal.id, { first_text_staus: 'Sent' }, HUBSPOT_ACCESS_TOKEN);
                 continue;
@@ -105,28 +104,22 @@ module.exports = async (req, res) => {
             });
             const assocData = await assocRes.json();
             const contactId = assocData.results?.[0]?.id;
-            if (!contactId) {
-                console.warn(`No contact found for deal ${deal.id}`);
-                continue;
-            }
+            if (!contactId) continue;
 
             if (processedContacts.has(contactId)) {
                 await updateDeal(deal.id, { first_text_staus: 'Sent' }, HUBSPOT_ACCESS_TOKEN);
                 continue;
             }
 
-            // FIX: Added mobilephone to properties requested
-            const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone,mobilephone,zip_code`, {
+            // SIMPLIFIED: Using the exact same fetch as the working version
+            const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone,zip_code`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
             const contactData = await contactRes.json();
-            
-            // FIX: Ensure we pick up the phone number regardless of which field it is in
-            const { firstname, phone, mobilephone, zip_code } = contactData.properties;
-            const validPhone = phone || mobilephone;
+            const { firstname, phone, zip_code } = contactData.properties;
 
-            if (!validPhone) {
-                console.warn(`Contact ${contactId} has no phone number.`);
+            if (!phone) {
+                console.warn(`Contact ${contactId} missing phone number.`);
                 continue;
             }
 
@@ -141,16 +134,15 @@ module.exports = async (req, res) => {
             }
 
             const finalRegion = lead_region || zipDetectedRegion;
-            const senderPN = phoneMap[ownerId?.toString()]?.[finalRegion];
+            const senderPN = phoneMap[hubspot_owner_id?.toString()]?.[finalRegion];
 
             if (!senderPN) {
-                console.error(`Configuration Error: No phone number mapped for Owner ${ownerId} in Region ${finalRegion}`);
                 await updateDeal(deal.id, { first_text_staus: 'Error' }, HUBSPOT_ACCESS_TOKEN);
                 continue;
             }
 
             let ownerName = "Team";
-            const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${ownerId}`, {
+            const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${hubspot_owner_id}`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
             if (ownerRes.ok) {
@@ -159,11 +151,14 @@ module.exports = async (req, res) => {
                 if (ownerName === "Ariane") ownerName = "Ari";
             }
 
-            const cleanPhone = `+1${validPhone.replace(/\D/g, '').slice(-10)}`;
+            const cleanPhone = `+1${phone.replace(/\D/g, '').slice(-10)}`;
+            
+            // Apply your Proper Case and Dog Name logic
             const safeName = toProperCase(firstname) || 'there';
             const dogInfo = k9___dog_name ? toProperCase(k9___dog_name) : (breed ? `your ${breed.toLowerCase()}` : 'your dog');
 
-            let messageText = groupA.includes(ownerId?.toString()) 
+            // Keep your A/B Test Message Switch
+            let messageText = groupA.includes(hubspot_owner_id?.toString()) 
                 ? `Hi ${safeName}! ${ownerName} here from Dogwise Academy; I just reviewed what you shared about ${dogInfo}. A quick call is usually easiest to understand what's going on and point you in the right direction, but happy to answer quick questions here too. Free today or tomorrow?`
                 : `Hi ${safeName}! ${ownerName} from Dogwise Academy, I went through your notes on ${dogInfo}, and I believe we can help you. Quickest way through it is a 5-min call, but I can answer questions here too. Does today work?`;
 
@@ -185,8 +180,6 @@ module.exports = async (req, res) => {
                 processedContacts.add(contactId);
                 processedResults.push({ id: deal.id, status: "Sent" });
             } else {
-                const opErr = await opRes.text();
-                console.error(`OpenPhone API Error [${opRes.status}]:`, opErr);
                 await updateDeal(deal.id, { first_text_staus: 'Error' }, HUBSPOT_ACCESS_TOKEN);
             }
         }
@@ -194,7 +187,6 @@ module.exports = async (req, res) => {
         return res.status(200).json({ processed: processedResults });
 
     } catch (err) {
-        console.error("CRITICAL RUNTIME ERROR:", err);
         return res.status(500).json({ error: err.message });
     }
 };
