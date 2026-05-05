@@ -1,5 +1,11 @@
 const cache = {};
 
+// Helper: Proper Case (fixes "SANDRA" or "labrador")
+function toProperCase(str) {
+    if (!str) return "";
+    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+}
+
 // 1. ZIP to State Fetcher
 async function getLoc(zip) {
     if (!zip) return null;
@@ -21,7 +27,6 @@ async function getLoc(zip) {
     return null;
 }
 
-// 🔧 helper: safe HubSpot PATCH
 async function updateDeal(dealId, properties, token) {
     const res = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${dealId}`, {
         method: 'PATCH',
@@ -42,10 +47,13 @@ module.exports = async (req, res) => {
         "89047041": { "East Coast": "PNhk6l4DYO", "West Coast": "PNYHBbwDjZ", "Florida": "PNDiOn7aMC", "Texas": "PNy8J5GulJ" }, // Emmalee
         "89704240": { "East Coast": "PNgxmHZMTt", "West Coast": "PNhj6p3vi9", "Florida": "PNnXbEIOB0", "Texas": "PNByzfsgGI" }, // Kloie
         "414684321": { "East Coast": "PNCVRsFSYc", "West Coast": "PNo869d9E4", "Florida": "PN4SwnqKvp", "Texas": "PNeFWT5y8u" }, // Olivia
-        "527061938": { "East Coast": "PNmPKyUwAo", "West Coast": "PN0bfl92Xh", "Florida": "PN0XxYbla8", "Texas": "PNgHkEgn8X" }, // Luisa (Ari's)
-        "639328820": { "East Coast": "PNrjR3eNC1", "West Coast": "PNMsQ9zB00", "Florida": "PNjNCoDod1", "CO": "PNdAOrWlkA", "Texas": "" }, // Paul (Alma's)
+        "527061938": { "East Coast": "PNmPKyUwAo", "West Coast": "PN0bfl92Xh", "Florida": "PN0XxYbla8", "Texas": "PNgHkEgn8X" }, // Luisa
+        "639328820": { "East Coast": "PNrjR3eNC1", "West Coast": "PNMsQ9zB00", "Florida": "PNjNCoDod1", "CO": "PNdAOrWlkA", "Texas": "" }, // Paul
         "681113136": { "East Coast": "PNdBXv8eHM", "West Coast": "PN8eZbHA8A", "Florida": "PNaUeSGiQ2", "Texas": "PNHtnDN8cV" }, // Ariane
     };
+
+    // A/B Group Assignment
+    const groupA = ["681113136", "89704240", "639328820", "75482998"]; // Ari, Kloie, Paul, Alma
 
     let processedResults = [];
     const processedContacts = new Set();
@@ -61,13 +69,7 @@ module.exports = async (req, res) => {
                 filterGroups: [{
                     filters: [{ propertyName: 'first_text_staus', operator: 'EQ', value: 'Ready' }]
                 }],
-                properties: [
-                    'hubspot_owner_id', 
-                    'k9___dog_name', 
-                    'lead_region', 
-                    'notes_last_contacted', 
-                    'what_is_the_breed_of_the_dog_s__'
-                ],
+                properties: ['hubspot_owner_id', 'k9___dog_name', 'lead_region', 'notes_last_contacted', 'what_is_the_breed_of_the_dog_s__'],
                 limit: 20
             })
         });
@@ -79,7 +81,7 @@ module.exports = async (req, res) => {
 
         for (const deal of deals) {
             const {
-                hubspot_owner_id,
+                hubspot_owner_id: ownerId,
                 k9___dog_name,
                 lead_region,
                 notes_last_contacted,
@@ -87,7 +89,6 @@ module.exports = async (req, res) => {
             } = deal.properties;
 
             const alreadyContacted = notes_last_contacted && notes_last_contacted !== "" && notes_last_contacted !== "null";
-
             if (alreadyContacted) {
                 await updateDeal(deal.id, { first_text_staus: 'Sent' }, HUBSPOT_ACCESS_TOKEN);
                 continue;
@@ -124,7 +125,7 @@ module.exports = async (req, res) => {
             }
 
             const finalRegion = lead_region || zipDetectedRegion;
-            const senderPN = phoneMap[hubspot_owner_id?.toString()]?.[finalRegion];
+            const senderPN = phoneMap[ownerId?.toString()]?.[finalRegion];
 
             if (!senderPN) {
                 await updateDeal(deal.id, { first_text_staus: 'Error' }, HUBSPOT_ACCESS_TOKEN);
@@ -132,21 +133,29 @@ module.exports = async (req, res) => {
             }
 
             let ownerName = "Team";
-            const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${hubspot_owner_id}`, {
+            const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${ownerId}`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
             if (ownerRes.ok) {
                 const ownerData = await ownerRes.json();
                 ownerName = ownerData.firstName || "Team";
+                if (ownerName === "Ariane") ownerName = "Ari"; // Request: Call her Ari
             }
 
             const cleanPhone = `+1${phone.replace(/\D/g, '').slice(-10)}`;
             
-            // ✅ PRIORITY: Dog Name > Breed > "your dog"
-            const dogInfo = k9___dog_name || (breed ? `your ${breed}` : 'your dog');
+            // Format Strings
+            const safeName = toProperCase(firstname) || 'there';
+            const dogInfo = k9___dog_name ? toProperCase(k9___dog_name) : (breed ? `your ${breed.toLowerCase()}` : 'your dog');
 
-            // ✅ UPDATED TEXT
-            const messageText = `Hi ${firstname || 'there'}! This is ${ownerName} from Dogwise Academy. I just reviewed the information you shared about ${dogInfo}. I have a few recommendations that could help. A quick 5–10 min call is usually easiest to walk you through it, just to give you some clarity. Do you have a few minutes today?`;
+            let messageText = "";
+            if (groupA.includes(ownerId?.toString())) {
+                // Group A Template
+                messageText = `Hi ${safeName}! ${ownerName} here from Dogwise Academy; I just reviewed what you shared about ${dogInfo}. A quick call is usually easiest to understand what's going on and point you in the right direction, but happy to answer quick questions here too. Free today or tomorrow?`;
+            } else {
+                // Group B Template
+                messageText = `Hi ${safeName}! ${ownerName} from Dogwise Academy, I went through your notes on ${dogInfo}, and I believe we can help you. Quickest way through it is a 5-min call, but I can answer questions here too. Does today work?`;
+            }
 
             const opRes = await fetch('https://api.openphone.com/v1/messages', {
                 method: 'POST',
