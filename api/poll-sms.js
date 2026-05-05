@@ -25,7 +25,6 @@ async function getLoc(zip) {
     return null;
 }
 
-// UPDATED: Added detailed logging for HubSpot Updates
 async function updateDeal(dealId, properties, token) {
     const res = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${dealId}`, {
         method: 'PATCH',
@@ -46,7 +45,6 @@ async function updateDeal(dealId, properties, token) {
 module.exports = async (req, res) => {
     const { HUBSPOT_ACCESS_TOKEN, OPENPHONE_API_KEY } = process.env;
 
-    // Safety check for Environment Variables
     if (!HUBSPOT_ACCESS_TOKEN || !OPENPHONE_API_KEY) {
         console.error("Missing Environment Variables");
         return res.status(500).json({ error: "Configuration missing" });
@@ -117,13 +115,17 @@ module.exports = async (req, res) => {
                 continue;
             }
 
-            const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone,zip_code`, {
+            // FIX: Added mobilephone to properties requested
+            const contactRes = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone,mobilephone,zip_code`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
             const contactData = await contactRes.json();
-            const { firstname, phone, zip_code } = contactData.properties;
+            
+            // FIX: Ensure we pick up the phone number regardless of which field it is in
+            const { firstname, phone, mobilephone, zip_code } = contactData.properties;
+            const validPhone = phone || mobilephone;
 
-            if (!phone) {
+            if (!validPhone) {
                 console.warn(`Contact ${contactId} has no phone number.`);
                 continue;
             }
@@ -147,7 +149,6 @@ module.exports = async (req, res) => {
                 continue;
             }
 
-            // Get Owner Name
             let ownerName = "Team";
             const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${ownerId}`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
@@ -158,7 +159,7 @@ module.exports = async (req, res) => {
                 if (ownerName === "Ariane") ownerName = "Ari";
             }
 
-            const cleanPhone = `+1${phone.replace(/\D/g, '').slice(-10)}`;
+            const cleanPhone = `+1${validPhone.replace(/\D/g, '').slice(-10)}`;
             const safeName = toProperCase(firstname) || 'there';
             const dogInfo = k9___dog_name ? toProperCase(k9___dog_name) : (breed ? `your ${breed.toLowerCase()}` : 'your dog');
 
@@ -166,7 +167,6 @@ module.exports = async (req, res) => {
                 ? `Hi ${safeName}! ${ownerName} here from Dogwise Academy; I just reviewed what you shared about ${dogInfo}. A quick call is usually easiest to understand what's going on and point you in the right direction, but happy to answer quick questions here too. Free today or tomorrow?`
                 : `Hi ${safeName}! ${ownerName} from Dogwise Academy, I went through your notes on ${dogInfo}, and I believe we can help you. Quickest way through it is a 5-min call, but I can answer questions here too. Does today work?`;
 
-            // UPDATED: Logging for OpenPhone
             const opRes = await fetch('https://api.openphone.com/v1/messages', {
                 method: 'POST',
                 headers: {
