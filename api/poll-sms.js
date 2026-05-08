@@ -149,7 +149,7 @@ module.exports = async (req, res) => {
             const dogInfo = rawDogInfo.charAt(0).toUpperCase() + rawDogInfo.slice(1).toLowerCase();
 
             // ✅ UPDATED TEXT
-            const messageText = `Hi ${firstname || 'there'}! ${ownerName} from Dogwise Academy here, just looked over what you shared about ${dogInfo}. Quickest way for me to point you in the right direction is a 5-min call. Happy to answer questions here too. Today or tomorrow work?`;
+            const messageText = `Hi ${firstname || 'there'}! ${ownerName} from Dogwise Academy here, I just looked over what you shared about ${dogInfo}. The quickest way for me to point you in the right direction is a 5-10 min call. Happy to answer questions here too. Would Today or tomorrow work?`;
 
             const opRes = await fetch('https://api.openphone.com/v1/messages', {
                 method: 'POST',
