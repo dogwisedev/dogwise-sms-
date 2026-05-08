@@ -138,15 +138,18 @@ module.exports = async (req, res) => {
             if (ownerRes.ok) {
                 const ownerData = await ownerRes.json();
                 ownerName = ownerData.firstName || "Team";
+                // Specific change for Ariane
+                if (ownerName === "Ariane") ownerName = "Ari";
             }
 
             const cleanPhone = `+1${phone.replace(/\D/g, '').slice(-10)}`;
             
-            // ✅ PRIORITY: Dog Name > Breed > "your dog"
-            const dogInfo = k9___dog_name || (breed ? `your ${breed}` : 'your dog');
+            // ✅ PRIORITY & FORMATTING: Capital first letter, rest lower case
+            let rawDogInfo = k9___dog_name || (breed ? `your ${breed}` : 'your dog');
+            const dogInfo = rawDogInfo.charAt(0).toUpperCase() + rawDogInfo.slice(1).toLowerCase();
 
             // ✅ UPDATED TEXT
-            const messageText = `Hi ${firstname || 'there'}! This is ${ownerName} from Dogwise Academy. I just reviewed the information you shared about ${dogInfo}. I have a few recommendations that could help. A quick 5–10 min call is usually easiest to walk you through it, just to give you some clarity. Do you have a few minutes today?`;
+            const messageText = `Hi ${firstname || 'there'}! ${ownerName} from Dogwise Academy here, just looked over what you shared about ${dogInfo}. Quickest way for me to point you in the right direction is a 5-min call. Happy to answer questions here too. Today or tomorrow work?`;
 
             const opRes = await fetch('https://api.openphone.com/v1/messages', {
                 method: 'POST',
