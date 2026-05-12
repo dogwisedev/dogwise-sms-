@@ -67,7 +67,7 @@ async function getAiPersonalizedMessage(apiKey, data) {
         body: JSON.stringify({
             model: "llama-3.1-8b-instant",
             messages: [{ role: "user", content: prompt }],
-            temperature: 0.3 // Lowered to prevent hallucinations
+            temperature: 0.5
         })
     });
 
