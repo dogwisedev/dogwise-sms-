@@ -34,7 +34,7 @@ async function updateDeal(dealId, properties, token) {
     return res.ok;
 }
 
-// 🤖 AI Helper: The No-Nonsense Expert
+// AI template
 async function getAiPersonalizedMessage(apiKey, data) {
     if (!apiKey) throw new Error("No API Key");
 
