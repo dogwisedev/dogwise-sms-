@@ -39,8 +39,8 @@ async function getAiPersonalizedMessage(apiKey, data) {
     if (!apiKey) throw new Error("No API Key");
 
     const prompt = `
-    You are ${data.ownerName} from Dogwise Academy. 
-    Write a brief, friendly SMS to a new lead named ${data.firstName}.
+    You are ${data.ownerName}, a pet consultant from Dogwise Academy, helping people get training for their dogs.
+    Write a brief, friendly SMS to a new lead named ${data.firstName}
     
     Context:
     - Dog: ${data.dogName} (${data.breed})
