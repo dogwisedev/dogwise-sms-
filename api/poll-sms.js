@@ -34,31 +34,30 @@ async function updateDeal(dealId, properties, token) {
     return res.ok;
 }
 
-//AI Board & Train Lead Qualifier
+// 🤖 AI Helper: The Diagnostic Expert
 async function getAiPersonalizedMessage(apiKey, data) {
     if (!apiKey) throw new Error("No API Key");
 
     const prompt = `
-    You are ${data.ownerName}, a professional Pet Consultant at Dogwise Academy. 
-    Write a warm, punchy SMS to ${data.firstName} who just requested info.
+    You are ${data.ownerName}, a professional Dog Trainer at Dogwise Academy. 
+    Write a warm, expert SMS to ${data.firstName}.
     
     Context:
-    - Dog: ${data.dogName} (${data.breed})
-    - Age: ${data.age || 'not specified'}
-    - Lead Notes: ${data.notes || 'none'}
-    - More Details: ${data.details || 'none'}
+    - Dog: ${data.dogName} (${data.breed}, ${data.age})
+    - Lead Notes: ${data.notes || 'NONE'}
 
-Rules:
+    Rules:
     1. Greeting: "Hi ${data.firstName}, ${data.ownerName} from Dogwise Academy here."
-    2. Personalize: Mention ${data.dogName}'s age and breed.
-    3. Mirror: Use the EXACT phrases the lead used in their notes to describe their dog's behavior. If no notes, skip this.
-    4. Qualify: Ask a specific "diagnostic" question about the behavior to see if they are a fit for Board & Train. If no notes, ask if they are looking for foundational manners or fixing specific behavioral issues.
-    5. No Fluff: Do not say "I'd love to help" or "thanks for reaching out." Get straight to the dog.
-    6. Tone: Professional, expert, and direct. 
-    7. Constraints: Max 250 characters. No emojis. No placeholders.
-    8. Ending: "When is best for a quick call to go over program details? Happy to text if you prefer."
+    2. Personalize: Mention ${data.dogName} and their breed/age naturally.
+    3. The Diagnostic Hook (CRITICAL): 
+       - IF NOTES EXIST: Do NOT just list the problems. Pick the main issue and ask a specific "expert" question about it to understand the severity. (e.g., If they mention jumping, ask "Is the jumping mainly when people walk through the front door?")
+       - IF NO NOTES: Ask "Are you looking to fix a specific behavioral struggle, or are we starting with foundational manners?"
+    4. Focus: Move the conversation toward qualifying them for Training.
+    5. Style: No fluff. No "I am excited to learn." No "My dog is also..." (You are the trainer, they are the client).
+    6. Constraints: Max 250 characters. No emojis.
+    7. Ending: "When is best for a quick call to go over program details? Happy to text if you prefer."
 
-    DO NOT use placeholders. Write ONLY the text message.
+    Write ONLY the text message.
     `;
 
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -69,9 +68,9 @@ Rules:
         },
         body: JSON.stringify({
             model: "llama-3.1-8b-instant",
-            messages: [{ role: "system", content: "You are a concise dog training consultant." },
+            messages: [{ role: "system", content: "You are a professional, direct dog trainer. You do not repeat the user's notes back to them; you ask follow-up questions." },
                        { role: "user", content: prompt }],
-            temperature: 0.5 
+            temperature: 0.4 // Dropped slightly to stop the "My dog is..." hallucination
         })
     });
 
