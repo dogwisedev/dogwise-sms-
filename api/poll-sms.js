@@ -49,11 +49,14 @@ async function getAiPersonalizedMessage(apiKey, data) {
     - Additional Details: ${data.details || 'none'}
 
     Guidelines:
-    1. Start: "Hi ${data.firstName}! ${data.ownerName} from Dogwise Academy here."
-    2. Content: Briefly mention their ${data.age} ${data.breed}.
-    3. Interaction: Ask ONE targeted question about the concern in their request. If notes are empty, ask: "What's your main training goal for ${data.dogName}?"
-    4. Constraint: Try to keep it on or under 150 characters. No guessing issues not in notes.
-    5. End: "When's best for a call? Or we can chat here!"
+    1. Start with "Hi ${data.firstName}. ${data.ownerName} from Dogwise Academy here."
+    2. Mention their dog's age/breed. 
+    3. Address specific concerns from their notes ONLY. DO NOT guess or assume problems if not explicitly mentioned in notes.
+    4. Try to ask a specific question about the training they want to increase interation chances, if no info seen, a general dog training question
+    5. Max 150 characters. Be punchy but fun and professional
+    6. This is the first outreach text to a new lead.
+    7. End with: "When's best for a call? Happy to text if you prefer."
+    8. Correct any information that might be misstyped on the lead. 
 
     DO NOT use placeholders. DO NOT use emojis. Write ONLY the text message.
     `;
@@ -67,7 +70,7 @@ async function getAiPersonalizedMessage(apiKey, data) {
         body: JSON.stringify({
             model: "llama-3.1-8b-instant",
             messages: [{ role: "user", content: prompt }],
-            temperature: 0.5
+            temperature: 0.3 // Fix for hallucinations: lower temp = literal accuracy
         })
     });
 
@@ -152,6 +155,9 @@ module.exports = async (req, res) => {
 
             if (!phone) continue;
 
+            // Fix for Name Issue: REBECCA -> Rebecca
+            const cleanFirstName = firstname ? firstname.charAt(0).toUpperCase() + firstname.slice(1).toLowerCase() : 'there';
+
             // Region & Owner Logic
             let zipDetectedRegion = null;
             const stateFromZip = await getLoc(zip_code);
@@ -198,7 +204,7 @@ module.exports = async (req, res) => {
             if (GROQ_API_KEY) {
                 try {
                     finalMessage = await getAiPersonalizedMessage(GROQ_API_KEY, {
-                        firstName: firstname || 'there',
+                        firstName: cleanFirstName,
                         ownerName: ownerName,
                         dogName: props.k9___dog_name || 'your dog',
                         breed: props.what_is_the_breed_of_the_dog_s__ || 'dog',
@@ -215,7 +221,7 @@ module.exports = async (req, res) => {
             if (!finalMessage) {
                 let rawDogInfo = props.k9___dog_name || (props.what_is_the_breed_of_the_dog_s__ ? `your ${props.what_is_the_breed_of_the_dog_s__}` : 'your dog');
                 const dogInfo = rawDogInfo.charAt(0).toUpperCase() + rawDogInfo.slice(1).toLowerCase();
-                finalMessage = `Hi ${firstname || 'there'}! ${ownerName} from Dogwise Academy here. I saw your request for ${dogInfo}. When's a good time for a 5-min call to see how we can help? Happy to text too!`;
+                finalMessage = `Hi ${cleanFirstName}! ${ownerName} from Dogwise Academy here. I saw your request for ${dogInfo}. When's a good time for a 5-min call to see how we can help? Happy to text too!`;
             }
 
             // Send via OpenPhone
