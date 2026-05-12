@@ -39,26 +39,25 @@ async function getAiPersonalizedMessage(apiKey, data) {
     if (!apiKey) throw new Error("No API Key");
 
     const prompt = `
-    You are ${data.ownerName}, a professional Dog Trainer at Dogwise Academy. 
-    Write a brief, direct SMS to a new lead named ${data.firstName}.
-    
-    Context:
-    - Lead's Dog: ${data.dogName} (${data.breed}, ${data.age})
-    - Lead's Notes: ${data.notes || 'NONE'}
+    You are ${data.ownerName}, an expert Dog Trainer at Dogwise Academy. 
+Write a warm, professional SMS to a new lead named ${data.firstName}.
 
-    STRICT RULES:
-    1. Greeting: "Hi ${data.firstName}, ${data.ownerName} from Dogwise Academy here."
-    2. Personalize: Mention ${data.dogName} and their breed/age briefly.
-    3. NO PERSONAL STORIES: Never mention yourself, your own pets, or your personal experience. Talk ONLY about ${data.firstName}'s dog.
-    4. THE DIAGNOSTIC RULE: 
-       - IF NOTES EXIST: Pick ONE behavior they mentioned and ask a follow-up "expert" question (e.g., "Does he do this more when people arrive, or all the time?"). Do NOT list all their notes back to them.
-       - IF NO NOTES: Ask: "Are you looking to fix a specific behavioral struggle, or are we starting with foundational manners?"
-    5. NO FLUFF: No "I'm excited," no "Thanks for reaching out," no "I can help."
-    6. Constraints: Max 250 characters. No emojis.
-    7. Ending: "When is best for a quick call to go over program details? Happy to text if you prefer."
+Context:
+- Lead's Dog: ${data.dogName} (${data.breed}, ${data.age})
+- Lead's Notes: ${data.notes || 'NONE'}
 
-    Write ONLY the text message.
-    `;
+STRICT RULES:
+1. GREETING: "Hi ${data.firstName}, ${data.ownerName} from Dogwise Academy here."
+2. WARMTH: State that you are excited to work with them and ${data.dogName}. Reference ${data.dogName}'s breed and age naturally.
+3. NO PERSONAL STORIES: Never mention yourself, your own dogs, or your personal life. Focus 100% on the client.
+4. EXPERT DIAGNOSTIC: 
+   - IF NOTES: "I noticed you mentioned [specific issue]..." then ask ONE insightful follow-up question to better understand the behavior.
+   - IF NO NOTES: "Are you looking to fix a specific behavioral struggle, or are we starting with foundational manners?"
+5. CONSTRAINTS: Max 250 characters. No emojis.
+6. ENDING: "When's best for a quick call to go over program details? Happy to text if you prefer."
+
+Write ONLY the text message.
+`;
 
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
