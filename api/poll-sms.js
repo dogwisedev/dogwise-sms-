@@ -34,31 +34,28 @@ async function updateDeal(dealId, properties, token) {
     return res.ok;
 }
 
-//  AI Helper: The Diagnostic
+// 🤖 AI Helper: The No-Nonsense Expert
 async function getAiPersonalizedMessage(apiKey, data) {
     if (!apiKey) throw new Error("No API Key");
 
-    const leadContext = (data.notes && data.notes.trim().length > 0) 
-        ? `Lead's specific concerns: "${data.notes}"` 
-        : "The lead provided NO notes. Ask a general question to find their biggest struggle.";
-
     const prompt = `
     You are ${data.ownerName}, a professional Dog Trainer at Dogwise Academy. 
-    Write a brief, expert SMS to a new lead named ${data.firstName}.
+    Write a brief, direct SMS to a new lead named ${data.firstName}.
     
     Context:
-    - Dog: ${data.dogName} (${data.breed}, ${data.age})
-    - ${leadContext}
+    - Lead's Dog: ${data.dogName} (${data.breed}, ${data.age})
+    - Lead's Notes: ${data.notes || 'NONE'}
 
-    Strict Rules:
+    STRICT RULES:
     1. Greeting: "Hi ${data.firstName}, ${data.ownerName} from Dogwise Academy here."
-    2. Personalization: Mention ${data.dogName} and their breed/age naturally.
-    3. THE DIAGNOSTIC RULE: Do NOT summarize or list all the lead's notes back to them. Instead, pick ONE specific behavior they mentioned and ask a follow-up "expert" question to understand the trigger (e.g., "Does he do this more when people arrive, or all the time?"). 
-    4. NO NOTES RULE: If no notes were provided, ask: "Are you looking to fix a specific behavioral struggle, or are we starting with foundational manners?"
-    5. No Fluff: Avoid "I'm excited to help" or "I see you have a dog." Get straight to the expert question.
-    6. Tone: Direct, professional, and authoritative.
-    7. Constraints: Max 250 characters. No emojis. No placeholders.
-    8. Ending: "When is best for a quick call to go over program details? Happy to text if you prefer."
+    2. Personalize: Mention ${data.dogName} and their breed/age briefly.
+    3. NO PERSONAL STORIES: Never mention yourself, your own pets, or your personal experience. Talk ONLY about ${data.firstName}'s dog.
+    4. THE DIAGNOSTIC RULE: 
+       - IF NOTES EXIST: Pick ONE behavior they mentioned and ask a follow-up "expert" question (e.g., "Does he do this more when people arrive, or all the time?"). Do NOT list all their notes back to them.
+       - IF NO NOTES: Ask: "Are you looking to fix a specific behavioral struggle, or are we starting with foundational manners?"
+    5. NO FLUFF: No "I'm excited," no "Thanks for reaching out," no "I can help."
+    6. Constraints: Max 250 characters. No emojis.
+    7. Ending: "When is best for a quick call to go over program details? Happy to text if you prefer."
 
     Write ONLY the text message.
     `;
@@ -72,10 +69,10 @@ async function getAiPersonalizedMessage(apiKey, data) {
         body: JSON.stringify({
             model: "llama-3.1-8b-instant",
             messages: [
-                { role: "system", content: "You are a professional dog trainer. You diagnose issues by asking smart follow-up questions rather than repeating what the client said." },
+                { role: "system", content: "You are a professional dog trainer. You NEVER talk about yourself or your own pets. You ONLY discuss the client's dog. Be brief and direct." },
                 { role: "user", content: prompt }
             ],
-            temperature: 0.4 
+            temperature: 0.1 // DROPPED to 0.1 to maximize factual accuracy and stop creative hallucinating.
         })
     });
 
