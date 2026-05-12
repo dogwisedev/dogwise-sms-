@@ -49,12 +49,11 @@ async function getAiPersonalizedMessage(apiKey, data) {
     - Additional Details: ${data.details || 'none'}
 
     Guidelines:
-    1. Start with "Hi ${data.firstName}! ${data.ownerName} from Dogwise Academy here."
-    2. Mention their specific dog's age/breed and address a specific concern from their notes naturally.
-    3. Max 150 characters. Be extremely punchy
-    4. This is the first outreach text to a new lead, we want to get interaction, maybe a question if works with the information provided.
-    5. End with: "When's best for a call? Happy to text if you prefer."
-    6. Correct any information that might be misstyped on the lead
+    1. Start: "Hi ${data.firstName}! ${data.ownerName} from Dogwise Academy here."
+    2. Content: Briefly mention their ${data.age} ${data.breed}.
+    3. Interaction: Ask ONE targeted question about the concern in their request. If notes are empty, ask: "What's your main training goal for ${data.dogName}?"
+    4. Constraint: Try to keep it on or under 150 characters. No guessing issues not in notes.
+    5. End: "When's best for a call? Or we can chat here!"
 
     DO NOT use placeholders. DO NOT use emojis. Write ONLY the text message.
     `;
@@ -68,7 +67,7 @@ async function getAiPersonalizedMessage(apiKey, data) {
         body: JSON.stringify({
             model: "llama-3.1-8b-instant",
             messages: [{ role: "user", content: prompt }],
-            temperature: 0.7
+            temperature: 0.3 // Lowered to prevent hallucinations
         })
     });
 
@@ -164,8 +163,16 @@ module.exports = async (req, res) => {
                 else zipDetectedRegion = "East Coast";
             }
 
-            const finalRegion = props.lead_region || zipDetectedRegion;
-            const senderPN = phoneMap[props.hubspot_owner_id?.toString()]?.[finalRegion];
+            const finalRegion = props.lead_region || zipDetectedRegion || "East Coast";
+            
+            // ENSURE WE ONLY USE NUMBERS FROM THE DEAL OWNER
+            const ownerId = props.hubspot_owner_id?.toString();
+            let senderPN = phoneMap[ownerId]?.[finalRegion];
+
+            // Fallback to Owner's East Coast number if region lookup fails
+            if (!senderPN && phoneMap[ownerId]) {
+                senderPN = phoneMap[ownerId]["East Coast"];
+            }
 
             if (!senderPN) {
                 await updateDeal(deal.id, { first_text_staus: 'Error' }, HUBSPOT_ACCESS_TOKEN);
@@ -173,7 +180,7 @@ module.exports = async (req, res) => {
             }
 
             let ownerName = "Team";
-            const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${props.hubspot_owner_id}`, {
+            const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${ownerId}`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
             if (ownerRes.ok) {
@@ -204,11 +211,11 @@ module.exports = async (req, res) => {
                 }
             }
 
-            // 2. Fallback (If AI fails or no key)
+            // 2. Fallback (If AI fails, guesses, or no key)
             if (!finalMessage) {
                 let rawDogInfo = props.k9___dog_name || (props.what_is_the_breed_of_the_dog_s__ ? `your ${props.what_is_the_breed_of_the_dog_s__}` : 'your dog');
                 const dogInfo = rawDogInfo.charAt(0).toUpperCase() + rawDogInfo.slice(1).toLowerCase();
-                finalMessage = `Hi ${firstname || 'there'}! ${ownerName} from Dogwise Academy here, I just looked over what you shared about ${dogInfo}. The quickest way for me to point you in the right direction is a 5-10 min call. Happy to answer questions here too. Would Today or tomorrow work?`;
+                finalMessage = `Hi ${firstname || 'there'}! ${ownerName} from Dogwise Academy here. I saw your request for ${dogInfo}. When's a good time for a 5-min call to see how we can help? Happy to text too!`;
             }
 
             // Send via OpenPhone
