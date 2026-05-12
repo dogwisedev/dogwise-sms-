@@ -53,7 +53,7 @@ async function getAiPersonalizedMessage(apiKey, data) {
     2. Mention their specific dog's age/breed and address a specific concern from their notes naturally.
     3. Max 150 characters. Be extremely punchy
     4. This is the first outreach text to a new lead, we want to get interaction, maybe a question if works with the information provided.
-    5. End with: "Would Today or tomorrow work for a call? Happy to answer questions here on texts too if you prefer."
+    5. End with: "When's best for a call? Happy to text if you prefer."
     6. Correct any information that might be misstyped on the lead
 
     DO NOT use placeholders. DO NOT use emojis. Write ONLY the text message.
