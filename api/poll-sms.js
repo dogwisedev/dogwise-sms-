@@ -34,8 +34,49 @@ async function updateDeal(dealId, properties, token) {
     return res.ok;
 }
 
+// 🤖 AI Helper: Groq Message Generator
+async function getAiPersonalizedMessage(apiKey, data) {
+    if (!apiKey) throw new Error("No API Key");
+
+    const prompt = `
+    You are ${data.ownerName} from Dogwise Academy. 
+    Write a brief, friendly SMS to a new lead named ${data.firstName}.
+    
+    Context:
+    - Dog: ${data.dogName} (${data.breed})
+    - Age: ${data.age || 'not specified'}
+    - Customer Notes: ${data.notes || 'none'}
+    - Additional Details: ${data.details || 'none'}
+
+    Guidelines:
+    1. Start with "Hi ${data.firstName}! ${data.ownerName} from Dogwise Academy here."
+    2. Mention their specific dog's age/breed and address a specific concern from their notes naturally.
+    3. Keep it under 160 characters if possible. Be punchy.
+    4. End with: "Would Today or tomorrow work for a 5-10 min call? Happy to answer questions here too."
+
+    DO NOT use placeholders. DO NOT use emojis. Write ONLY the text message.
+    `;
+
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${apiKey.trim()}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            model: "llama3-8b-8192", // Fast, reliable, high volume
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.7
+        })
+    });
+
+    if (!response.ok) throw new Error("Groq API Failed");
+    const json = await response.json();
+    return json.choices[0].message.content.trim();
+}
+
 module.exports = async (req, res) => {
-    const { HUBSPOT_ACCESS_TOKEN, OPENPHONE_API_KEY } = process.env;
+    const { HUBSPOT_ACCESS_TOKEN, OPENPHONE_API_KEY, GROQ_API_KEY } = process.env;
 
     const phoneMap = {
         "75482998": { "East Coast": "PNItsh7bWS", "West Coast": "PNEcKEoyHX", "Florida": "PNceGqLFha", "Texas": "PNWT0HuaAy" }, // Alma
@@ -66,7 +107,10 @@ module.exports = async (req, res) => {
                     'k9___dog_name', 
                     'lead_region', 
                     'notes_last_contacted', 
-                    'what_is_the_breed_of_the_dog_s__'
+                    'what_is_the_breed_of_the_dog_s__',
+                    'note_from_customer',
+                    'additional_details',
+                    'what_are_the_dog_s__age_s__'
                 ],
                 limit: 20
             })
@@ -78,21 +122,15 @@ module.exports = async (req, res) => {
         if (deals.length === 0) return res.status(200).json({ message: "No deals ready." });
 
         for (const deal of deals) {
-            const {
-                hubspot_owner_id,
-                k9___dog_name,
-                lead_region,
-                notes_last_contacted,
-                what_is_the_breed_of_the_dog_s__: breed 
-            } = deal.properties;
-
-            const alreadyContacted = notes_last_contacted && notes_last_contacted !== "" && notes_last_contacted !== "null";
+            const props = deal.properties;
+            const alreadyContacted = props.notes_last_contacted && props.notes_last_contacted !== "" && props.notes_last_contacted !== "null";
 
             if (alreadyContacted) {
                 await updateDeal(deal.id, { first_text_staus: 'Sent' }, HUBSPOT_ACCESS_TOKEN);
                 continue;
             }
 
+            // Get Contact Info
             const assocRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}/associations/contacts`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
@@ -113,6 +151,7 @@ module.exports = async (req, res) => {
 
             if (!phone) continue;
 
+            // Region & Owner Logic
             let zipDetectedRegion = null;
             const stateFromZip = await getLoc(zip_code);
             if (stateFromZip) {
@@ -123,8 +162,8 @@ module.exports = async (req, res) => {
                 else zipDetectedRegion = "East Coast";
             }
 
-            const finalRegion = lead_region || zipDetectedRegion;
-            const senderPN = phoneMap[hubspot_owner_id?.toString()]?.[finalRegion];
+            const finalRegion = props.lead_region || zipDetectedRegion;
+            const senderPN = phoneMap[props.hubspot_owner_id?.toString()]?.[finalRegion];
 
             if (!senderPN) {
                 await updateDeal(deal.id, { first_text_staus: 'Error' }, HUBSPOT_ACCESS_TOKEN);
@@ -132,25 +171,45 @@ module.exports = async (req, res) => {
             }
 
             let ownerName = "Team";
-            const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${hubspot_owner_id}`, {
+            const ownerRes = await fetch(`https://api.hubapi.com/crm/v3/owners/${props.hubspot_owner_id}`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
             if (ownerRes.ok) {
                 const ownerData = await ownerRes.json();
                 ownerName = ownerData.firstName || "Team";
-                // Specific change for Ariane
                 if (ownerName === "Ariane") ownerName = "Ari";
             }
 
             const cleanPhone = `+1${phone.replace(/\D/g, '').slice(-10)}`;
             
-            // ✅ PRIORITY & FORMATTING: Capital first letter, rest lower case
-            let rawDogInfo = k9___dog_name || (breed ? `your ${breed}` : 'your dog');
-            const dogInfo = rawDogInfo.charAt(0).toUpperCase() + rawDogInfo.slice(1).toLowerCase();
+            // --- MESSAGE GENERATION ---
+            let finalMessage = "";
+            
+            // 1. Try AI Generation
+            if (GROQ_API_KEY) {
+                try {
+                    finalMessage = await getAiPersonalizedMessage(GROQ_API_KEY, {
+                        firstName: firstname || 'there',
+                        ownerName: ownerName,
+                        dogName: props.k9___dog_name || 'your dog',
+                        breed: props.what_is_the_breed_of_the_dog_s__ || 'dog',
+                        age: props.what_are_the_dog_s__age_s__,
+                        notes: props.note_from_customer,
+                        details: props.additional_details
+                    });
+                } catch (aiErr) {
+                    console.error("AI Error, switching to fallback:", aiErr.message);
+                }
+            }
 
-            // ✅ UPDATED TEXT
-            const messageText = `Hi ${firstname || 'there'}! ${ownerName} from Dogwise Academy here, I just looked over what you shared about ${dogInfo}. The quickest way for me to point you in the right direction is a 5-10 min call. Happy to answer questions here too. Would Today or tomorrow work?`;
+            // 2. Fallback (If AI fails or no key)
+            if (!finalMessage) {
+                let rawDogInfo = props.k9___dog_name || (props.what_is_the_breed_of_the_dog_s__ ? `your ${props.what_is_the_breed_of_the_dog_s__}` : 'your dog');
+                const dogInfo = rawDogInfo.charAt(0).toUpperCase() + rawDogInfo.slice(1).toLowerCase();
+                finalMessage = `Hi ${firstname || 'there'}! ${ownerName} from Dogwise Academy here, I just looked over what you shared about ${dogInfo}. The quickest way for me to point you in the right direction is a 5-10 min call. Happy to answer questions here too. Would Today or tomorrow work?`;
+            }
 
+            // Send via OpenPhone
             const opRes = await fetch('https://api.openphone.com/v1/messages', {
                 method: 'POST',
                 headers: {
@@ -158,7 +217,7 @@ module.exports = async (req, res) => {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    content: messageText,
+                    content: finalMessage,
                     from: senderPN,
                     to: [cleanPhone]
                 })
