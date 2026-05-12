@@ -52,10 +52,9 @@ async function getAiPersonalizedMessage(apiKey, data) {
     1. Start with "Hi ${data.firstName}, ${data.ownerName} from Dogwise Academy here."
     2. Mention their dog's age/breed. 
     3. Address specific concerns from their notes ONLY. DO NOT guess or assume problems if not explicitly mentioned in notes.
-    4. Try to ask a specific question about the training they want to increase interaction, if no info seen, a general dog training question
+    4. Try to ask a specific question about the training they want, to increase interaction, if no info seen, a general dog training question
     5. Max 150 characters. Be punchy but fun and professional
-    6. This is the first outreach text to a new lead.
-    7. End with: "When's best for a call? Happy to text if you prefer."
+    6. End with: "When's best for a call? Happy to text if you prefer."
 
     DO NOT use placeholders. DO NOT use emojis. Write ONLY the text message.
     `;
