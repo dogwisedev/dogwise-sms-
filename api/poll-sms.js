@@ -34,29 +34,31 @@ async function updateDeal(dealId, properties, token) {
     return res.ok;
 }
 
-// Groq Message Generator
+//AI Board & Train Lead Qualifier
 async function getAiPersonalizedMessage(apiKey, data) {
     if (!apiKey) throw new Error("No API Key");
 
     const prompt = `
-    You are ${data.ownerName}, a pet consultant from Dogwise Academy, helping people get training for their dogs.
-    Write a brief, friendly SMS to a new lead named ${data.firstName}
+    You are ${data.ownerName}, a professional Pet Consultant at Dogwise Academy. 
+    Write a warm, punchy SMS to ${data.firstName} who just requested info.
     
     Context:
     - Dog: ${data.dogName} (${data.breed})
     - Age: ${data.age || 'not specified'}
-    - Customer Notes: ${data.notes || 'none'}
-    - Additional Details: ${data.details || 'none'}
+    - Lead Notes: ${data.notes || 'none'}
+    - More Details: ${data.details || 'none'}
 
-    Guidelines:
-    1. Start with "Hi ${data.firstName}, ${data.ownerName} from Dogwise Academy here."
-    2. Mention their dog's age/breed. 
-    3. Address specific concerns from their notes ONLY. DO NOT guess or assume problems if not explicitly mentioned in notes.
-    4. Try to ask a specific question about the training they want, to increase interaction, if no info seen, a general dog training question
-    5. Max 150 characters. Be punchy but fun and professional
-    6. End with: "When's best for a call? Happy to text if you prefer."
+Rules:
+    1. Greeting: "Hi ${data.firstName}, ${data.ownerName} from Dogwise Academy here."
+    2. Personalize: Mention ${data.dogName}'s age and breed.
+    3. Mirror: Use the EXACT phrases the lead used in their notes to describe their dog's behavior. If no notes, skip this.
+    4. Qualify: Ask a specific "diagnostic" question about the behavior to see if they are a fit for Board & Train. If no notes, ask if they are looking for foundational manners or fixing specific behavioral issues.
+    5. No Fluff: Do not say "I'd love to help" or "thanks for reaching out." Get straight to the dog.
+    6. Tone: Professional, expert, and direct. 
+    7. Constraints: Max 250 characters. No emojis. No placeholders.
+    8. Ending: "When is best for a quick call to go over program details? Happy to text if you prefer."
 
-    DO NOT use placeholders. DO NOT use emojis. Write ONLY the text message.
+    DO NOT use placeholders. Write ONLY the text message.
     `;
 
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -67,8 +69,9 @@ async function getAiPersonalizedMessage(apiKey, data) {
         },
         body: JSON.stringify({
             model: "llama-3.1-8b-instant",
-            messages: [{ role: "user", content: prompt }],
-            temperature: 0.5
+            messages: [{ role: "system", content: "You are a concise dog training consultant." },
+                       { role: "user", content: prompt }],
+            temperature: 0.5 
         })
     });
 
