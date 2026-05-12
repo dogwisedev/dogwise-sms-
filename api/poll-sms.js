@@ -39,20 +39,20 @@ async function getAiPersonalizedMessage(apiKey, data) {
     if (!apiKey) throw new Error("No API Key");
 
     const prompt = `
-    You are ${data.ownerName}, an expert Dog Trainer at Dogwise Academy. 
+You are ${data.ownerName}, an expert Dog Trainer at Dogwise Academy. 
 Write a warm, professional SMS to a new lead named ${data.firstName}.
 
-Context:
+Context (Source Data):
 - Lead's Dog: ${data.dogName} (${data.breed}, ${data.age})
 - Lead's Notes: ${data.notes || 'NONE'}
 
 STRICT RULES:
 1. GREETING: "Hi ${data.firstName}, ${data.ownerName} from Dogwise Academy here."
 2. WARMTH: State that you are excited to work with them and ${data.dogName}. Reference ${data.dogName}'s breed and age naturally.
-3. NO PERSONAL STORIES: Never mention yourself, your own dogs, or your personal life. Focus 100% on the client.
+3. NO PERSONAL STORIES: You are a professional entity. You do NOT own a dog and have NO personal stories. Never say "I have," "my dog," or "I've experienced this." Focus 100% on the client's dog.
 4. EXPERT DIAGNOSTIC: 
-   - IF NOTES: "I noticed you mentioned [specific issue]..." then ask ONE insightful follow-up question to better understand the behavior.
-   - IF NO NOTES: "Are you looking to fix a specific behavioral struggle, or are we starting with foundational manners?"
+   - IF NOTES ARE NOT "NONE": "I noticed you mentioned [specific issue from notes]..." then ask ONE insightful follow-up question about that behavior.
+   - IF NOTES ARE "NONE": "Are you looking to fix a specific behavioral struggle, or obedience training?"
 5. CONSTRAINTS: Max 250 characters. No emojis.
 6. ENDING: "When's best for a quick call to go over program details? Happy to text if you prefer."
 
@@ -68,10 +68,10 @@ Write ONLY the text message.
         body: JSON.stringify({
             model: "llama-3.1-8b-instant",
             messages: [
-                { role: "system", content: "You are a professional dog trainer. You NEVER talk about yourself or your own pets. You ONLY discuss the client's dog. Be brief and direct." },
+                { role: "system", content: "You are a professional dog trainer. You have no pets and no personal life. You only discuss the client's dog details provided. Be warm but stay objective." },
                 { role: "user", content: prompt }
             ],
-            temperature: 0.1 // DROPPED to 0.1 to maximize factual accuracy and stop creative hallucinating.
+            temperature: 0.1 
         })
     });
 
@@ -156,7 +156,6 @@ module.exports = async (req, res) => {
 
             if (!phone) continue;
 
-            // Fix for Name Issue: REBECCA -> Rebecca
             const cleanFirstName = firstname ? firstname.charAt(0).toUpperCase() + firstname.slice(1).toLowerCase() : 'there';
 
             // Region & Owner Logic
@@ -172,11 +171,9 @@ module.exports = async (req, res) => {
 
             const finalRegion = props.lead_region || zipDetectedRegion || "East Coast";
             
-            // ENSURE WE ONLY USE NUMBERS FROM THE DEAL OWNER
             const ownerId = props.hubspot_owner_id?.toString();
             let senderPN = phoneMap[ownerId]?.[finalRegion];
 
-            // Fallback to Owner's East Coast number if region lookup fails
             if (!senderPN && phoneMap[ownerId]) {
                 senderPN = phoneMap[ownerId]["East Coast"];
             }
@@ -200,8 +197,14 @@ module.exports = async (req, res) => {
             
             // --- MESSAGE GEN ---
             let finalMessage = "";
+
+            // COMBINE NOTES LOGIC: Check both fields
+            const rawNotes = [props.note_from_customer, props.additional_details]
+                .filter(n => n && n !== "null" && n !== "")
+                .join(" | ");
             
-            // 1. Try AI
+            const cleanNotes = rawNotes.length > 2 ? rawNotes : "NONE";
+            
             if (GROQ_API_KEY) {
                 try {
                     finalMessage = await getAiPersonalizedMessage(GROQ_API_KEY, {
@@ -210,8 +213,7 @@ module.exports = async (req, res) => {
                         dogName: props.k9___dog_name || 'your dog',
                         breed: props.what_is_the_breed_of_the_dog_s__ || 'dog',
                         age: props.what_are_the_dog_s__age_s__,
-                        notes: props.note_from_customer,
-                        details: props.additional_details
+                        notes: cleanNotes
                     });
                 } catch (aiErr) {
                     console.error("AI Error, switching to fallback:", aiErr.message);
