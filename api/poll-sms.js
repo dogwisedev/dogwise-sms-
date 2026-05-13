@@ -198,14 +198,14 @@ module.exports = async (req, res) => {
             // --- MESSAGE GEN ---
             let finalMessage = "";
 
-            // COMBINE NOTES LOGIC: Check both fields
             const rawNotes = [props.note_from_customer, props.additional_details]
                 .filter(n => n && n !== "null" && n !== "")
                 .join(" | ");
             
             const cleanNotes = rawNotes.length > 2 ? rawNotes : "NONE";
             
-            if (GROQ_API_KEY) {
+            // Logic Change: Only trigger AI if the owner is Alma
+            if (ownerId === "75482998" && GROQ_API_KEY) {
                 try {
                     finalMessage = await getAiPersonalizedMessage(GROQ_API_KEY, {
                         firstName: cleanFirstName,
@@ -216,11 +216,11 @@ module.exports = async (req, res) => {
                         notes: cleanNotes
                     });
                 } catch (aiErr) {
-                    console.error("AI Error, switching to fallback:", aiErr.message);
+                    console.error("AI Error for Alma, switching to fallback:", aiErr.message);
                 }
             }
 
-            // 2. Fallback
+            // Standard template for everyone else (or Alma fallback)
             if (!finalMessage) {
                 let rawDogInfo = props.k9___dog_name || (props.what_is_the_breed_of_the_dog_s__ ? `your ${props.what_is_the_breed_of_the_dog_s__}` : 'your dog');
                 const dogInfo = rawDogInfo.charAt(0).toUpperCase() + rawDogInfo.slice(1).toLowerCase();
