@@ -220,10 +220,18 @@ module.exports = async (req, res) => {
                 }
             }
 
-            // Standard template for everyone
+            // Standard template for everyone (Updated to fix capital 'Y')
             if (!finalMessage) {
-                let rawDogInfo = props.k9___dog_name || (props.what_is_the_breed_of_the_dog_s__ ? `your ${props.what_is_the_breed_of_the_dog_s__}` : 'your dog');
-                const dogInfo = rawDogInfo.charAt(0).toUpperCase() + rawDogInfo.slice(1).toLowerCase();
+                let dogInfo = "";
+                if (props.k9___dog_name) {
+                    dogInfo = props.k9___dog_name.charAt(0).toUpperCase() + props.k9___dog_name.slice(1).toLowerCase();
+                } else if (props.what_is_the_breed_of_the_dog_s__) {
+                    const breed = props.what_is_the_breed_of_the_dog_s__;
+                    dogInfo = `your ${breed.charAt(0).toUpperCase() + breed.slice(1).toLowerCase()}`;
+                } else {
+                    dogInfo = "your dog";
+                }
+
                 finalMessage = `Hi ${cleanFirstName}! ${ownerName} from Dogwise Academy here. I saw your request for ${dogInfo}. When's a good time for a 5-min call to see how we can help? Happy to text too!`;
             }
 
