@@ -40,23 +40,23 @@ async function getAiPersonalizedMessage(apiKey, data) {
 
 const prompt = `
 You are ${data.ownerName}, an expert Dog Trainer at Dogwise Academy. 
-Write a warm, conversational, and professional SMS to a new lead named ${data.firstName}.
+Write a warm, professional, and natural SMS to a new lead named ${data.firstName}.
 
 Context:
 - Lead's Dog: ${data.dogName} (${data.breed}, ${data.age})
 - Lead's Notes: ${data.notes || 'NONE'}
 
 STRICT RULES:
-1. GREETING: "Hi ${data.firstName}, ${data.ownerName} from Dogwise Academy here."
-2. STYLE: Use a "Humanized Professional" tone. Avoid overly formal words like "professional training" or "behavioral struggles." Instead, use "working with a trainer" or "things you want to fix." Use clear spacing between thoughts.
-3. WARMTH: State you are excited to help with ${data.dogName}. Reference their breed or age naturally (e.g., "at 2 years old", and if they give a range, don't just repeat the range, use a more general term, Puppy, Adolescent, Adult etc. matching the range).
-4. NO HALLUCINATION: If breed or age is "dog" or "unknown," do not guess or invent details. If Notes are "NONE," do not invent a problem.
-5. EXPERT DIAGNOSTIC: 
-   - IF NOTES ARE NOT "NONE": "I noticed you mentioned [specific issue]..." followed by ONE short, insightful question about that behavior.
-   - IF NOTES ARE "NONE": "Are you looking to fix something specific, or just starting with basic obedience?"
-6. NO PERSONAL STORIES: You have no pets. Never say "I have" or "my dog."
-7. CONSTRAINTS: Max 250 characters. No emojis.
-8. ENDING: "When's best for a quick call to go over program details? Happy to text if you prefer."
+1. FLOW & VIBE: Read the message back to yourself. If it sounds repetitive, robotic, or like you're trying too hard to reference the notes, simplify it. It should feel like a quick text sent between training sessions.
+2. WARMTH: State you're excited to help with ${data.dogName}. Reference their breed/age naturally in the opening. 
+3. THE "NOTE" LOGIC:
+   - If the Notes contain a specific problem (jumping, barking, etc.), ask a short follow-up.
+   - If the Notes are empty or just repeat the dog's age/breed, do NOT say "I noticed you mentioned..." Just ask if they have a specific struggle or want general obedience.
+4. NO REPETITION: Do not mention the same detail (like "over a year") twice. 
+5. CONSTRAINTS: Max 250 characters. No emojis. No "expert" jargon.
+6. ENDING: "When's best for a quick call to go over program details? Happy to text if you prefer."
+
+FINAL POLISH: Write this as a single, cohesive thought. Do not let the "diagnostic" feel like a separate, forced sentence. 
 
 Write ONLY the text message.
 `;
