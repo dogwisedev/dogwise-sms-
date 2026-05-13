@@ -204,7 +204,7 @@ module.exports = async (req, res) => {
             
             const cleanNotes = rawNotes.length > 2 ? rawNotes : "NONE";
             
-            // Logic Change: Only trigger AI if the owner is Alma
+            // Only trigger AI if the owner is Alma
             if (ownerId === "75482998" && GROQ_API_KEY) {
                 try {
                     finalMessage = await getAiPersonalizedMessage(GROQ_API_KEY, {
@@ -220,7 +220,7 @@ module.exports = async (req, res) => {
                 }
             }
 
-            // Standard template for everyone else (or Alma fallback)
+            // Standard template for everyone
             if (!finalMessage) {
                 let rawDogInfo = props.k9___dog_name || (props.what_is_the_breed_of_the_dog_s__ ? `your ${props.what_is_the_breed_of_the_dog_s__}` : 'your dog');
                 const dogInfo = rawDogInfo.charAt(0).toUpperCase() + rawDogInfo.slice(1).toLowerCase();
