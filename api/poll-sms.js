@@ -52,7 +52,7 @@ STRICT RULES:
 1. FLOW & VIBE: Read the message back to yourself. If it sounds repetitive, robotic, or like you're trying too hard to reference the notes, simplify it. It should feel like a quick text sent about training sessions.
 2. WARMTH: State you're looking to help with ${data.dogName}. Reference their breed/age naturally in the opening. 
 3. THE "NOTE" LOGIC:
-   - If the Notes contain a specific problem (jumping, barking, etc.), ask a short follow-up.
+   - If the Notes contain a problems (jumping, barking, etc.), ask a short explorative follow-up question on one of the problems.
    - If the Notes are empty or just repeat the dog's age/breed, do NOT say "I noticed you mentioned..." Just ask if they have a specific struggle or want general obedience.
 4. NO REPETITION: Do not mention the same detail (like "over a year") twice. 
 5. CONSTRAINTS: Max 250 characters. No emojis. No "expert" jargon.
