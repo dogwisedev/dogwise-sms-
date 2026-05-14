@@ -21,7 +21,7 @@ async function getLoc(zip) {
     return null;
 }
 
-//  HubSpot PATCH
+// HubSpot PATCH
 async function updateDeal(dealId, properties, token) {
     const res = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${dealId}`, {
         method: 'PATCH',
@@ -38,10 +38,7 @@ async function updateDeal(dealId, properties, token) {
 async function getAiPersonalizedMessage(apiKey, data) {
     if (!apiKey) throw new Error("No API Key");
 
-async function getAiPersonalizedMessage(apiKey, data) {
-    if (!apiKey) throw new Error("No API Key");
-
-const prompt = `
+    const prompt = `
 You are ${data.ownerName}, an expert Dog Trainer at Dogwise Academy. 
 Write a warm, professional, and natural SMS to a new lead named ${data.firstName}.
 
@@ -52,7 +49,7 @@ Context:
 - Lead's Notes: ${data.notes || 'NONE'}
 
 STRICT RULES:
-1. FLOW & VIBE: Read the message back to yourself. It should feel like a quick text sent between training sessions.
+1. FLOW & VIBE: It should feel like a quick text sent between training sessions.
 2. WARMTH: State you're excited to help with ${data.dogName}. Reference their breed/age naturally. 
 3. THE "NOTE" LOGIC:
    - If the Notes contain a specific problem, ask a short follow-up.
@@ -62,6 +59,7 @@ STRICT RULES:
 
 Write ONLY the text message.
 `;
+
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -81,28 +79,8 @@ Write ONLY the text message.
     if (!response.ok) throw new Error("Groq API Failed");
     const json = await response.json();
     
-    // Trims whitespace and removes leading/trailing quotes if the AI includes them
+    // Clean whitespace and remove leading/trailing quotes
     return json.choices[0].message.content.trim().replace(/^["']|["']$/g, '');
-}
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${apiKey.trim()}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            model: "llama-3.1-8b-instant",
-            messages: [
-                { role: "system", content: "You are a professional dog trainer. You have no pets and no personal life. You only discuss the client's dog details provided. Be warm but stay objective." },
-                { role: "user", content: prompt }
-            ],
-            temperature: 0.1 
-        })
-    });
-
-    if (!response.ok) throw new Error("Groq API Failed");
-    const json = await response.json();
-    return json.choices[0].message.content.trim();
 }
 
 module.exports = async (req, res) => {
@@ -160,7 +138,6 @@ module.exports = async (req, res) => {
                 continue;
             }
 
-            // Get Contact Info
             const assocRes = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${deal.id}/associations/contacts`, {
                 headers: { 'Authorization': `Bearer ${HUBSPOT_ACCESS_TOKEN.trim()}` }
             });
@@ -183,7 +160,6 @@ module.exports = async (req, res) => {
 
             const cleanFirstName = firstname ? firstname.charAt(0).toUpperCase() + firstname.slice(1).toLowerCase() : 'there';
 
-            // Region & Owner Logic
             let zipDetectedRegion = null;
             const stateFromZip = await getLoc(zip_code);
             if (stateFromZip) {
@@ -195,7 +171,6 @@ module.exports = async (req, res) => {
             }
 
             const finalRegion = props.lead_region || zipDetectedRegion || "East Coast";
-            
             const ownerId = props.hubspot_owner_id?.toString();
             let senderPN = phoneMap[ownerId]?.[finalRegion];
 
@@ -219,8 +194,6 @@ module.exports = async (req, res) => {
             }
 
             const cleanPhone = `+1${phone.replace(/\D/g, '').slice(-10)}`;
-            
-            // --- MESSAGE GEN ---
             let finalMessage = "";
 
             const rawNotes = [props.note_from_customer, props.additional_details]
@@ -229,7 +202,6 @@ module.exports = async (req, res) => {
             
             const cleanNotes = rawNotes.length > 2 ? rawNotes : "NONE";
             
-            // Only trigger AI if the owner is Alma
             if (ownerId === "75482998" && GROQ_API_KEY) {
                 try {
                     finalMessage = await getAiPersonalizedMessage(GROQ_API_KEY, {
@@ -245,22 +217,14 @@ module.exports = async (req, res) => {
                 }
             }
 
-            // Standard template for everyone (Updated to fix capital 'Y')
             if (!finalMessage) {
-                let dogInfo = "";
-                if (props.k9___dog_name) {
-                    dogInfo = props.k9___dog_name.charAt(0).toUpperCase() + props.k9___dog_name.slice(1).toLowerCase();
-                } else if (props.what_is_the_breed_of_the_dog_s__) {
-                    const breed = props.what_is_the_breed_of_the_dog_s__;
-                    dogInfo = `your ${breed.charAt(0).toUpperCase() + breed.slice(1).toLowerCase()}`;
-                } else {
-                    dogInfo = "your dog";
-                }
+                let dogInfo = props.k9___dog_name ? 
+                    props.k9___dog_name.charAt(0).toUpperCase() + props.k9___dog_name.slice(1).toLowerCase() : 
+                    (props.what_is_the_breed_of_the_dog_s__ ? `your ${props.what_is_the_breed_of_the_dog_s__.toLowerCase()}` : "your dog");
 
                 finalMessage = `Hi ${cleanFirstName}! ${ownerName} from Dogwise Academy here. I saw your request for ${dogInfo}. When's a good time for a 5-min call to see how we can help? Happy to text too!`;
             }
 
-            // Send OpenPhone
             const opRes = await fetch('https://api.openphone.com/v1/messages', {
                 method: 'POST',
                 headers: {
