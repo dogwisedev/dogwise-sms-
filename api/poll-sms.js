@@ -38,7 +38,7 @@ async function updateDeal(dealId, properties, token) {
 async function getAiPersonalizedMessage(apiKey, data) {
     if (!apiKey) throw new Error("No API Key");
 
-    const prompt = `
+const prompt = `
 Hi ${data.firstName}, this is ${data.ownerName} from Dogwise Academy. 
 
 You are ${data.ownerName}, an expert Dog Trainer at Dogwise Academy. 
