@@ -95,7 +95,7 @@ module.exports = async (req, res) => {
         "89704240": { "East Coast": "PNgxmHZMTt", "West Coast": "PNhj6p3vi9", "Florida": "PNnXbEIOB0", "Texas": "PNByzfsgGI" }, // Kloie
         "414684321": { "East Coast": "PNCVRsFSYc", "West Coast": "PNo869d9E4", "Florida": "PN4SwnqKvp", "Texas": "PNeFWT5y8u" }, // Olivia
         "527061938": { "East Coast": "PNmPKyUwAo", "West Coast": "PN0bfl92Xh", "Florida": "PN0XxYbla8", "Texas": "PNgHkEgn8X" }, // Luisa (Ari's)
-        "639328820": { "East Coast": "PNrjR3eNC1", "West Coast": "PNMsQ9zB00", "Florida": "PNjNCoDod1", "CO": "PNdAOrWlkA", "Texas": "" }, // Paul (Alma's)
+        "639328820": { "East Coast": "PNrjR3eNC1", "West Coast": "PNMsQ9zB00", "Florida": "PNjNCoDod1", "Colorado": "PNdAOrWlkA", "Texas": "" }, // Paul (Alma's)
         "681113136": { "East Coast": "PNdBXv8eHM", "West Coast": "PN8eZbHA8A", "Florida": "PNaUeSGiQ2", "Texas": "PNHtnDN8cV" }, // Ariane
     };
 
@@ -168,7 +168,7 @@ module.exports = async (req, res) => {
             if (stateFromZip) {
                 if (["TX", "OK", "AR"].includes(stateFromZip)) zipDetectedRegion = "Texas";
                 else if (stateFromZip === "FL") zipDetectedRegion = "Florida";
-                else if (stateFromZip === "CO") zipDetectedRegion = "CO";
+                else if (stateFromZip === "CO") zipDetectedRegion = "Colorado";
                 else if (["CA", "WA", "AZ", "OR", "NV"].includes(stateFromZip)) zipDetectedRegion = "West Coast";
                 else zipDetectedRegion = "East Coast";
             }
