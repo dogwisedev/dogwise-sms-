@@ -38,28 +38,52 @@ async function updateDeal(dealId, properties, token) {
 async function getAiPersonalizedMessage(apiKey, data) {
     if (!apiKey) throw new Error("No API Key");
 
+async function getAiPersonalizedMessage(apiKey, data) {
+    if (!apiKey) throw new Error("No API Key");
+
 const prompt = `
 You are ${data.ownerName}, an expert Dog Trainer at Dogwise Academy. 
 Write a warm, professional, and natural SMS to a new lead named ${data.firstName}.
+
+STRICT OPENING: You must start the message exactly with: "Hi ${data.firstName}, this is ${data.ownerName} from Dogwise Academy."
 
 Context:
 - Lead's Dog: ${data.dogName} (${data.breed}, ${data.age})
 - Lead's Notes: ${data.notes || 'NONE'}
 
 STRICT RULES:
-1. FLOW & VIBE: Read the message back to yourself. If it sounds repetitive, robotic, or like you're trying too hard to reference the notes, simplify it. It should feel like a quick text sent between training sessions.
-2. WARMTH: State you're excited to help with ${data.dogName}. Reference their breed/age naturally in the opening. 
+1. FLOW & VIBE: Read the message back to yourself. It should feel like a quick text sent between training sessions.
+2. WARMTH: State you're excited to help with ${data.dogName}. Reference their breed/age naturally. 
 3. THE "NOTE" LOGIC:
-   - If the Notes contain a specific problem (jumping, barking, etc.), ask a short follow-up.
-   - If the Notes are empty or just repeat the dog's age/breed, do NOT say "I noticed you mentioned..." Just ask if they have a specific struggle or want general obedience.
-4. NO REPETITION: Do not mention the same detail (like "over a year") twice. 
-5. CONSTRAINTS: Max 250 characters. No emojis. No "expert" jargon.
-6. ENDING: "When's best for a quick call to go over program details? Happy to text if you prefer."
-
-FINAL POLISH: Write this as a single, cohesive thought. Do not let the "diagnostic" feel like a separate, forced sentence. 
+   - If the Notes contain a specific problem, ask a short follow-up.
+   - If the Notes are empty, ask if they have a specific struggle or want general obedience.
+4. CONSTRAINTS: Max 250 characters. No emojis. No "expert" jargon. No quotation marks.
+5. ENDING: "When's best for a quick call to go over program details? Happy to text if you prefer."
 
 Write ONLY the text message.
 `;
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${apiKey.trim()}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            model: "llama-3.1-8b-instant",
+            messages: [
+                { role: "system", content: "You are a professional dog trainer. Output only the message body. Never use quotation marks." },
+                { role: "user", content: prompt }
+            ],
+            temperature: 0.1 
+        })
+    });
+
+    if (!response.ok) throw new Error("Groq API Failed");
+    const json = await response.json();
+    
+    // Trims whitespace and removes leading/trailing quotes if the AI includes them
+    return json.choices[0].message.content.trim().replace(/^["']|["']$/g, '');
+}
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
