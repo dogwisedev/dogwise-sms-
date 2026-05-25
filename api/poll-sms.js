@@ -225,7 +225,7 @@ module.exports = async (req, res) => {
                     props.k9___dog_name.charAt(0).toUpperCase() + props.k9___dog_name.slice(1).toLowerCase() : 
                     (props.what_is_the_breed_of_the_dog_s__ ? `your ${props.what_is_the_breed_of_the_dog_s__.toLowerCase()}` : "your dog");
 
-                finalMessage = `Hi ${cleanFirstName}! ${ownerName} from Dogwise Academy here. I saw your request for ${dogInfo}. When's a good time for a 5-min call to see how we can help? Happy to text too!`;
+                finalMessage = Hi ${cleanFirstName}! ${ownerName} from Dogwise Academy here. I saw your request for ${dogInfo}. We’ll be running our Memorial Day sale throughout the final week of May! When's a good time for a 5-min call to see how we can help? Happy to text too!`;
             }
 
             const opRes = await fetch('https://api.openphone.com/v1/messages', {
