@@ -31,6 +31,13 @@ function stateToRegion(state) {
     return "East Coast";
 }
 
+// ─── ZIP extractor (works on any string) ──────────────────────────────────────
+function extractZip(str) {
+    if (!str) return null;
+    const match = str.toString().match(/\b\d{5}\b/);
+    return match ? match[0] : null;
+}
+
 // ─── HubSpot PATCH ─────────────────────────────────────────────────────────────
 async function updateDeal(dealId, properties, token) {
     const res = await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${dealId}`, {
@@ -111,13 +118,12 @@ async function setRegionsForNewLeads(token) {
         body: JSON.stringify({
             filterGroups: [{
                 filters: [
-                    // Only deals sitting in "New Leads" stage
                     { propertyName: 'dealstage', operator: 'EQ', value: '173324388' },
-                    // Where region has never been set
                     { propertyName: 'lead_region', operator: 'NOT_HAS_PROPERTY' }
                 ]
             }],
-            properties: ['dealstage', 'lead_region'],
+            // Pull location and dealname so we can extract ZIP from them
+            properties: ['dealstage', 'lead_region', 'location', 'dealname'],
             limit: 50
         })
     });
@@ -133,7 +139,6 @@ async function setRegionsForNewLeads(token) {
     console.log(`Phase 1: Found ${deals.length} deal(s) needing a region.`);
 
     for (const deal of deals) {
-        // Get associated contact to read their ZIP
         const assocRes = await fetch(
             `https://api.hubapi.com/crm/v3/objects/deals/${deal.id}/associations/contacts`,
             { headers: { 'Authorization': `Bearer ${token.trim()}` } }
@@ -151,22 +156,35 @@ async function setRegionsForNewLeads(token) {
             { headers: { 'Authorization': `Bearer ${token.trim()}` } }
         );
         const contactData = await contactRes.json();
-        const zip = contactData.properties?.zip_code;
 
-        const state = await getLoc(zip);
+        // ── ZIP fallback chain ──────────────────────────────────────────────
+        // 1. Contact zip_code  (Zapier sets this when available)
+        // 2. Deal location     (e.g. "Saugatuck, MI, 49453")
+        // 3. Deal name         (e.g. "Jim VanDyke, Saugatuck, MI, 49453")
+        // 4. No Zip Found      (truly nothing — flag for manual review)
+        const zipFromContact  = extractZip(contactData.properties?.zip_code);
+        const zipFromLocation = extractZip(deal.properties?.location);
+        const zipFromName     = extractZip(deal.properties?.dealname);
+
+        const zip    = zipFromContact || zipFromLocation || zipFromName || null;
+        const source = zipFromContact  ? 'contact.zip_code'
+                     : zipFromLocation ? 'deal.location'
+                     : zipFromName     ? 'deal.name'
+                     : null;
+
+        const state  = await getLoc(zip);
         const region = stateToRegion(state);
 
         if (!region) {
-            // No ZIP or unrecognised state — flag it for manual review
             await updateDeal(deal.id, { lead_region: 'No Zip Found' }, token);
             regionResults.push({ id: deal.id, region: 'No Zip Found' });
-            console.log(`Phase 1: Deal ${deal.id} — no ZIP, marked "No Zip Found".`);
+            console.log(`Phase 1: Deal ${deal.id} — no ZIP in any field, marked "No Zip Found".`);
             continue;
         }
 
         await updateDeal(deal.id, { lead_region: region }, token);
         regionResults.push({ id: deal.id, region });
-        console.log(`Phase 1: Deal ${deal.id} → ${region} (ZIP ${zip}, state ${state})`);
+        console.log(`Phase 1: Deal ${deal.id} → ${region} (ZIP ${zip} via ${source}, state ${state})`);
     }
 
     return regionResults;
@@ -175,7 +193,6 @@ async function setRegionsForNewLeads(token) {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PHASE 2 — Send texts to deals HubSpot has marked Ready
-// (Unchanged logic — region is now guaranteed clean by Phase 1)
 // ═══════════════════════════════════════════════════════════════════════════════
 async function sendReadyTexts(token, openphoneKey, groqKey) {
     const phoneMap = {
@@ -188,7 +205,7 @@ async function sendReadyTexts(token, openphoneKey, groqKey) {
         "681113136": { "East Coast": "PNdBXv8eHM",  "West Coast": "PN8eZbHA8A",  "Florida": "PNaUeSGiQ2",  "Texas": "PNHtnDN8cV" }, // Ariane
     };
 
-    const processedResults = [];
+    const processedResults  = [];
     const processedContacts = new Set();
 
     const searchRes = await fetch('https://api.hubapi.com/crm/v3/objects/deals/search', {
@@ -205,6 +222,8 @@ async function sendReadyTexts(token, openphoneKey, groqKey) {
                 'hubspot_owner_id',
                 'k9___dog_name',
                 'lead_region',
+                'location',
+                'dealname',
                 'notes_last_contacted',
                 'what_is_the_breed_of_the_dog_s__',
                 'note_from_customer',
@@ -271,20 +290,23 @@ async function sendReadyTexts(token, openphoneKey, groqKey) {
             : 'there';
 
         // Region: Phase 1 should have set this already.
-        // ZIP fallback kept as a last-resort safety net only.
+        // Full fallback chain kept as safety net in case Phase 1 missed it.
         const validRegions = ["East Coast", "West Coast", "Florida", "Texas", "Colorado"];
         let finalRegion = validRegions.includes(props.lead_region) ? props.lead_region : null;
 
         if (!finalRegion) {
-            console.warn(`Phase 2: Deal ${deal.id} has no valid region — running ZIP fallback.`);
-            const state = await getLoc(zip_code);
+            console.warn(`Phase 2: Deal ${deal.id} — no valid region, running fallback chain.`);
+            const zip = extractZip(zip_code)
+                     || extractZip(props.location)
+                     || extractZip(props.dealname)
+                     || null;
+            const state = await getLoc(zip);
             finalRegion = stateToRegion(state) || "East Coast";
-            // Write it back so HubSpot record stays clean
             await updateDeal(deal.id, { lead_region: finalRegion }, token);
         }
 
-        const ownerId = props.hubspot_owner_id?.toString();
-        let senderPN = phoneMap[ownerId]?.[finalRegion];
+        const ownerId  = props.hubspot_owner_id?.toString();
+        let senderPN   = phoneMap[ownerId]?.[finalRegion];
 
         if (!senderPN && phoneMap[ownerId]) {
             senderPN = phoneMap[ownerId]["East Coast"];
@@ -322,9 +344,9 @@ async function sendReadyTexts(token, openphoneKey, groqKey) {
                     firstName: cleanFirstName,
                     ownerName,
                     dogName: props.k9___dog_name || 'your dog',
-                    breed: props.what_is_the_breed_of_the_dog_s__ || 'dog',
-                    age: props.what_are_the_dog_s__age_s__,
-                    notes: cleanNotes
+                    breed:   props.what_is_the_breed_of_the_dog_s__ || 'dog',
+                    age:     props.what_are_the_dog_s__age_s__,
+                    notes:   cleanNotes
                 });
             } catch (aiErr) {
                 console.error("AI Error for Alma, using fallback:", aiErr.message);
@@ -379,8 +401,8 @@ module.exports = async (req, res) => {
     const { HUBSPOT_ACCESS_TOKEN, OPENPHONE_API_KEY, GROQ_API_KEY } = process.env;
 
     try {
-        const regionResults  = await setRegionsForNewLeads(HUBSPOT_ACCESS_TOKEN);
-        const sendResults    = await sendReadyTexts(HUBSPOT_ACCESS_TOKEN, OPENPHONE_API_KEY, GROQ_API_KEY);
+        const regionResults = await setRegionsForNewLeads(HUBSPOT_ACCESS_TOKEN);
+        const sendResults   = await sendReadyTexts(HUBSPOT_ACCESS_TOKEN, OPENPHONE_API_KEY, GROQ_API_KEY);
 
         return res.status(200).json({
             phase1_regions_set: regionResults,
