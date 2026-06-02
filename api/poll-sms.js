@@ -24,7 +24,8 @@ async function getLoc(zip) {
 // ─── State → Region ────────────────────────────────────────────────────────────
 function stateToRegion(state) {
     if (!state) return null;
-    if (["TX", "OK", "AR"].includes(state)) return "Texas";
+    if (["TX", "OK", "AR", "KY"].includes(state)) return "Texas";
+    if (state === "IL") return "Illinois";
     if (state === "FL") return "Florida";
     if (state === "CO") return "Colorado";
     if (["CA", "WA", "AZ", "OR", "NV"].includes(state)) return "West Coast";
@@ -196,13 +197,13 @@ async function setRegionsForNewLeads(token) {
 // ═══════════════════════════════════════════════════════════════════════════════
 async function sendReadyTexts(token, openphoneKey, groqKey) {
     const phoneMap = {
-        "75482998":  { "East Coast": "PNItsh7bWS",  "West Coast": "PNEcKEoyHX",  "Florida": "PNceGqLFha",  "Texas": "PNWT0HuaAy" }, // Alma
-        "89047041":  { "East Coast": "PNhk6l4DYO",  "West Coast": "PNYHBbwDjZ",  "Florida": "PNDiOn7aMC",  "Texas": "PNy8J5GulJ" }, // Emmalee
-        "89704240":  { "East Coast": "PNgxmHZMTt",  "West Coast": "PNhj6p3vi9",  "Florida": "PNnXbEIOB0",  "Texas": "PNByzfsgGI" }, // Kloie
-        "414684321": { "East Coast": "PNCVRsFSYc",  "West Coast": "PNo869d9E4",  "Florida": "PN4SwnqKvp",  "Texas": "PNeFWT5y8u" }, // Olivia
-        "527061938": { "East Coast": "PNmPKyUwAo",  "West Coast": "PN0bfl92Xh",  "Florida": "PN0XxYbla8",  "Texas": "PNgHkEgn8X" }, // Luisa
-        "639328820": { "East Coast": "PNrjR3eNC1",  "West Coast": "PNMsQ9zB00",  "Florida": "PNjNCoDod1",  "Colorado": "PNdAOrWlkA", "Texas": "" }, // Paul
-        "681113136": { "East Coast": "PNdBXv8eHM",  "West Coast": "PN8eZbHA8A",  "Florida": "PNaUeSGiQ2",  "Texas": "PNHtnDN8cV" }, // Ariane
+        "75482998":  { "East Coast": "PNItsh7bWS",  "West Coast": "PNEcKEoyHX",  "Florida": "PNceGqLFha",  "Texas": "PNWT0HuaAy",  "Illinois": "PNItsh7bWS" }, // Alma
+        "89047041":  { "East Coast": "PNhk6l4DYO",  "West Coast": "PNYHBbwDjZ",  "Florida": "PNDiOn7aMC",  "Texas": "PNy8J5GulJ",  "Illinois": "PNhk6l4DYO" }, // Emmalee
+        "89704240":  { "East Coast": "PNgxmHZMTt",  "West Coast": "PNhj6p3vi9",  "Florida": "PNnXbEIOB0",  "Texas": "PNByzfsgGI",  "Illinois": "PNgxmHZMTt" }, // Kloie
+        "414684321": { "East Coast": "PNCVRsFSYc",  "West Coast": "PNo869d9E4",  "Florida": "PN4SwnqKvp",  "Texas": "PNeFWT5y8u",  "Illinois": "PNCVRsFSYc" }, // Olivia
+        "527061938": { "East Coast": "PNmPKyUwAo",  "West Coast": "PN0bfl92Xh",  "Florida": "PN0XxYbla8",  "Texas": "PNgHkEgn8X",  "Illinois": "PNmPKyUwAo" }, // Luisa
+        "639328820": { "East Coast": "PNrjR3eNC1",  "West Coast": "PNMsQ9zB00",  "Florida": "PNjNCoDod1",  "Colorado": "PNdAOrWlkA", "Texas": "",  "Illinois": "PNrjR3eNC1" }, // Paul
+        "681113136": { "East Coast": "PNdBXv8eHM",  "West Coast": "PN8eZbHA8A",  "Florida": "PNaUeSGiQ2",  "Texas": "PNHtnDN8cV",  "Illinois": "PNdBXv8eHM" }, // Ariane
     };
 
     const processedResults  = [];
@@ -291,7 +292,7 @@ async function sendReadyTexts(token, openphoneKey, groqKey) {
 
         // Region: Phase 1 should have set this already.
         // Full fallback chain kept as safety net in case Phase 1 missed it.
-        const validRegions = ["East Coast", "West Coast", "Florida", "Texas", "Colorado"];
+        const validRegions = ["East Coast", "West Coast", "Florida", "Texas", "Colorado", "Illinois"];
         let finalRegion = validRegions.includes(props.lead_region) ? props.lead_region : null;
 
         if (!finalRegion) {
