@@ -157,11 +157,10 @@ async function setRegionsForNewLeads(token) {
         const region = stateToRegion(state);
 
         if (!region) {
-            // ZIP missing or unrecognised — default to East Coast so HubSpot
-            // timezone workflow can still fire rather than hanging forever
-            await updateDeal(deal.id, { lead_region: 'East Coast' }, token);
-            regionResults.push({ id: deal.id, region: 'East Coast (default — no ZIP)' });
-            console.log(`Phase 1: Deal ${deal.id} — no ZIP, defaulted to East Coast.`);
+            // No ZIP or unrecognised state — flag it for manual review
+            await updateDeal(deal.id, { lead_region: 'No Zip Found' }, token);
+            regionResults.push({ id: deal.id, region: 'No Zip Found' });
+            console.log(`Phase 1: Deal ${deal.id} — no ZIP, marked "No Zip Found".`);
             continue;
         }
 
@@ -261,7 +260,11 @@ async function sendReadyTexts(token, openphoneKey, groqKey) {
         const contactData = await contactRes.json();
         const { firstname, phone, zip_code } = contactData.properties;
 
-        if (!phone) continue;
+        if (!phone) {
+            console.warn(`Phase 2: Deal ${deal.id} — no phone on contact, marking Error.`);
+            await updateDeal(deal.id, { first_text_staus: 'Error' }, token);
+            continue;
+        }
 
         const cleanFirstName = firstname
             ? firstname.charAt(0).toUpperCase() + firstname.slice(1).toLowerCase()
