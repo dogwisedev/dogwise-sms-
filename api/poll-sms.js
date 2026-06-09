@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dogwise Academy — Talk to Alex</title>
+<title>Dogwise Academy — Talk to Alma</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Fraunces:ital,wght@0,600;1,400&display=swap');
 
@@ -17,7 +17,7 @@
     --border:  #dde4df;
     --bg:      #f7f9f7;
     --white:   #ffffff;
-    --bubble-Alex: #ffffff;
+    --bubble-Alma: #ffffff;
     --bubble-user: #4a7c59;
     --red:     #c0392b;
   }
@@ -96,7 +96,7 @@
     gap: 10px;
     max-width: 88%;
   }
-  .msg-row.alex { align-self: flex-start; }
+  .msg-row.Alma { align-self: flex-start; }
   .msg-row.user { align-self: flex-end; flex-direction: row-reverse; }
 
   .msg-avatar {
@@ -116,8 +116,8 @@
     font-size: 14.5px;
     max-width: 100%;
   }
-  .Alex .bubble {
-    background: var(--bubble-Alex);
+  .Alma .bubble {
+    background: var(--bubble-Alma);
     border: 1px solid var(--border);
     border-top-left-radius: 4px;
     color: var(--ink);
@@ -225,7 +225,7 @@
   <div class="header">
     <div class="avatar">🐾</div>
     <div class="header-text">
-      <h1>Alex — Dogwise Academy</h1>
+      <h1>Alma — Dogwise Academy</h1>
       <p><span class="status-dot"></span>Training Consultant · Usually replies in seconds</p>
     </div>
   </div>
@@ -280,7 +280,7 @@ const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 // ── Trainer list ─────────────────────────────────────────────
 const TRAINERS = [
   { name: "Michael Jackson",       lat: 40.7027, lon: -73.9432, city: "Brooklyn",          state: "NY" },
-  { name: "Alex Santiago",         lat: 40.7611, lon: -73.3283, city: "Deer Park",          state: "NY" },
+  { name: "Alma Santiago",         lat: 40.7611, lon: -73.3283, city: "Deer Park",          state: "NY" },
   { name: "Amanda Kranz",          lat: 41.5965, lon: -73.9130, city: "Wappingers Falls",   state: "NY" },
   { name: "Mike Colt",             lat: 40.9740, lon: -75.0255, city: "Columbia",           state: "NJ" },
   { name: "Nyeem Calhoun",         lat: 39.4515, lon: -74.7273, city: "Mays Landing",       state: "NJ" },
@@ -672,7 +672,7 @@ ${trainerLine}${profile.clientEmail ? "\n[x] Email: " + profile.clientEmail : ""
 
 STRICT RULE: If a field shows [ ] you do not know it. Do NOT guess, assume, or reference it. Ask instead.`;
 
-  return `You are Alex, a Training Consultant at Dogwise Academy. Text conversation with a potential client.
+  return `You are Alma, a Training Consultant at Dogwise Academy. Text conversation with a potential client.
 
 PERSONA
 - Warm, energetic, real - like a passionate trainer texting between sessions
@@ -681,7 +681,7 @@ PERSONA
 - Light humour where it fits. Never jokey about aggression or safety.
 - NEVER use em dashes (--). Use commas, "and", or a new sentence instead.
 - Never say "Great question!" or any hollow filler.
-- Your name is Alex. If asked if you're AI: "Ha, I wish - then I wouldn't have to answer messages on weekends"
+- Your name is Alma. If asked if you're AI: "Ha, I wish - then I wouldn't have to answer messages on weekends"
 
 GOAL
 Get the customer to either agree to a phone call OR pay the deposit directly over text. A call is the preferred close because it converts better, but if they don't want a call, keep going over text and close with the deposit link. Never lose the customer just because they won't call.
@@ -800,7 +800,7 @@ function addBubble(role, text) {
   const display = text.replace(/\[CALL_AGREED\]/g, "").trim();
   const row = document.createElement("div");
   row.className = `msg-row ${role}`;
-  if (role === "alex") {
+  if (role === "Alma") {
     row.innerHTML = `<div class="msg-avatar">🐾</div><div class="bubble">${display.replace(/\n/g, "<br>")}</div>`;
   } else {
     row.innerHTML = `<div class="bubble">${display.replace(/\n/g, "<br>")}</div>`;
@@ -811,7 +811,7 @@ function addBubble(role, text) {
 
 function showTyping() {
   const row = document.createElement("div");
-  row.className = "msg-row alex"; row.id = "typing";
+  row.className = "msg-row Alma"; row.id = "typing";
   row.innerHTML = `<div class="msg-avatar">🐾</div><div class="bubble"><div class="typing-dots"><span></span><span></span><span></span></div></div>`;
   messagesEl.appendChild(row);
   messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -872,7 +872,7 @@ zip: 5-digit US ZIP only if explicitly mentioned.` },
 }
 
 // ── Main reply ────────────────────────────────────────────────
-async function getAlexReply() {
+async function getAlmaReply() {
   try {
     const res = await fetch(GROQ_URL, {
       method: "POST",
@@ -927,9 +927,9 @@ async function send() {
     log("Profile: " + JSON.stringify(profile));
   }
 
-  const reply = await getAlexReply();
+  const reply = await getAlmaReply();
   hideTyping();
-  addBubble("alex", reply);
+  addBubble("Alma", reply);
   history.push({ role: "assistant", content: reply });
 
   // Write dog name to HubSpot as soon as we get it
@@ -986,19 +986,19 @@ function startChat() {
 
   let opening;
   if (firstName && dogName) {
-    opening = `Hey ${firstName}! I'm Alex from Dogwise Academy. So excited to hear about ${dogName} - tell me, what's the main thing you're struggling with right now?`;
+    opening = `Hey ${firstName}! I'm Alma from Dogwise Academy. So excited to hear about ${dogName} - tell me, what's the main thing you're struggling with right now?`;
   } else if (firstName) {
-    opening = `Hey ${firstName}! Alex here from Dogwise Academy. Thanks for reaching out - tell me a bit about your dog, what's going on with them?`;
+    opening = `Hey ${firstName}! Alma here from Dogwise Academy. Thanks for reaching out - tell me a bit about your dog, what's going on with them?`;
   } else if (dogName) {
-    opening = `Hey! I'm Alex from Dogwise Academy. I can see you reached out about ${dogName} - what's the main thing you'd love to work on?`;
+    opening = `Hey! I'm Alma from Dogwise Academy. I can see you reached out about ${dogName} - what's the main thing you'd love to work on?`;
   } else {
-    opening = `Hey! I'm Alex from Dogwise Academy - thanks for reaching out. Tell me about your dog, what's going on with them?`;
+    opening = `Hey! I'm Alma from Dogwise Academy - thanks for reaching out. Tell me about your dog, what's going on with them?`;
   }
 
   showTyping();
   setTimeout(() => {
     hideTyping();
-    addBubble("alex", opening);
+    addBubble("Alma", opening);
     history.push({ role: "assistant", content: opening });
     inputEl.focus();
   }, 900);
