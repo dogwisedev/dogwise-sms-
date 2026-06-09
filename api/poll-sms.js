@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dogwise Academy — Talk to Alma</title>
+<title>Dogwise Academy — Talk to Alex</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Fraunces:ital,wght@0,600;1,400&display=swap');
 
@@ -17,7 +17,7 @@
     --border:  #dde4df;
     --bg:      #f7f9f7;
     --white:   #ffffff;
-    --bubble-alma: #ffffff;
+    --bubble-Alex: #ffffff;
     --bubble-user: #4a7c59;
     --red:     #c0392b;
   }
@@ -116,8 +116,8 @@
     font-size: 14.5px;
     max-width: 100%;
   }
-  .alma .bubble {
-    background: var(--bubble-alma);
+  .Alex .bubble {
+    background: var(--bubble-Alex);
     border: 1px solid var(--border);
     border-top-left-radius: 4px;
     color: var(--ink);
@@ -225,7 +225,7 @@
   <div class="header">
     <div class="avatar">🐾</div>
     <div class="header-text">
-      <h1>Alma — Dogwise Academy</h1>
+      <h1>Alex — Dogwise Academy</h1>
       <p><span class="status-dot"></span>Training Consultant · Usually replies in seconds</p>
     </div>
   </div>
@@ -872,7 +872,7 @@ zip: 5-digit US ZIP only if explicitly mentioned.` },
 }
 
 // ── Main reply ────────────────────────────────────────────────
-async function getAlmaReply() {
+async function getAlexReply() {
   try {
     const res = await fetch(GROQ_URL, {
       method: "POST",
@@ -927,7 +927,7 @@ async function send() {
     log("Profile: " + JSON.stringify(profile));
   }
 
-  const reply = await getAlmaReply();
+  const reply = await getAlexReply();
   hideTyping();
   addBubble("alex", reply);
   history.push({ role: "assistant", content: reply });
