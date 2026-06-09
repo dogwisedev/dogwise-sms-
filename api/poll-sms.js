@@ -69,7 +69,7 @@ Dog: ${dogDesc || 'unknown'}
 ${hasRealNote ? `Their note: "${data.notes}"` : ''}
 
 Rules:
-- Start with "Hey ${data.firstName}," then introduce yourself in 4-5 words max
+- Start with "Hey ${data.firstName}, ${data.ownerName} from Dogwise Academy." — exactly that, nothing more for the intro
 - Reference the dog naturally in one short clause
 - ${hasRealNote ? `Acknowledge their specific concern briefly, then ask one follow-up question` : `Ask what specific struggle they want to work on, or if it's general obedience`}
 - End with: "When's a good time for a quick call? Happy to text too."
