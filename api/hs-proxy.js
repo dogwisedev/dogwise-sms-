@@ -1,31 +1,23 @@
 // api/hs-proxy.js
-// Proxies HubSpot API calls from the browser (avoids CORS).
-// Reads HUBSPOT_ACCESS_TOKEN from Vercel env vars.
-// Usage: GET /api/hs-proxy?dealId=123456
-//        GET /api/hs-proxy?action=createTask  (POST body: JSON task payload)
+// Proxies HubSpot API calls from the browser — avoids CORS.
+// Token lives in Vercel env var HUBSPOT_ACCESS_TOKEN, never exposed to browser.
 
-module.exports = async (req, res) => {
-    // Allow requests from any origin (tighten this to your domain in production)
+export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
-    }
+    if (req.method === 'OPTIONS') return res.status(200).end();
 
     const token = process.env.HUBSPOT_ACCESS_TOKEN;
-    if (!token) {
-        return res.status(500).json({ error: 'HUBSPOT_ACCESS_TOKEN not set in environment' });
-    }
+    if (!token) return res.status(500).json({ error: 'HUBSPOT_ACCESS_TOKEN not configured' });
 
     const { dealId, action } = req.query;
 
-    // ── GET deal data ─────────────────────────────────────────
+    // ── GET: load deal + contact ──────────────────────────────
     if (req.method === 'GET' && dealId) {
         try {
-            const DEAL_PROPS = [
+            const PROPS = [
                 'hubspot_owner_id',
                 'k9___dog_name',
                 'what_is_the_breed_of_the_dog_s__',
@@ -36,9 +28,8 @@ module.exports = async (req, res) => {
                 'dealname'
             ].join(',');
 
-            // Fetch deal + associations in parallel
             const [dealRes, assocRes] = await Promise.all([
-                fetch(`https://api.hubapi.com/crm/v3/objects/deals/${dealId}?properties=${DEAL_PROPS}`, {
+                fetch(`https://api.hubapi.com/crm/v3/objects/deals/${dealId}?properties=${PROPS}`, {
                     headers: { Authorization: `Bearer ${token}` }
                 }),
                 fetch(`https://api.hubapi.com/crm/v3/objects/deals/${dealId}/associations/contacts`, {
@@ -47,30 +38,28 @@ module.exports = async (req, res) => {
             ]);
 
             if (!dealRes.ok) {
-                const err = await dealRes.text();
-                return res.status(dealRes.status).json({ error: `HubSpot deal error: ${err}` });
+                return res.status(dealRes.status).json({ error: `HubSpot returned ${dealRes.status}` });
             }
 
             const deal = await dealRes.json();
-            let contact = null;
-            let contactId = null;
+            let contact = null, contactId = null;
 
             if (assocRes.ok) {
                 const assoc = await assocRes.json();
-                contactId = assoc.results?.[0]?.id;
+                contactId = assoc.results?.[0]?.id || null;
                 if (contactId) {
                     const cRes = await fetch(
                         `https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=firstname,phone,zip_code`,
                         { headers: { Authorization: `Bearer ${token}` } }
                     );
-                    if (cRes.ok) contact = await cRes.json();
+                    if (cRes.ok) contact = (await cRes.json()).properties;
                 }
             }
 
             return res.status(200).json({
                 deal: deal.properties,
                 dealId,
-                contact: contact?.properties || null,
+                contact,
                 contactId
             });
 
@@ -79,12 +68,11 @@ module.exports = async (req, res) => {
         }
     }
 
-    // ── POST: create task ─────────────────────────────────────
+    // ── POST: create HubSpot task ─────────────────────────────
     if (req.method === 'POST' && action === 'createTask') {
         try {
-            const body = req.body;
+            const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
 
-            // Create the task
             const taskRes = await fetch('https://api.hubapi.com/crm/v3/objects/tasks', {
                 method: 'POST',
                 headers: {
@@ -96,19 +84,16 @@ module.exports = async (req, res) => {
 
             if (!taskRes.ok) {
                 const err = await taskRes.text();
-                return res.status(taskRes.status).json({ error: `Task creation failed: ${err}` });
+                return res.status(taskRes.status).json({ error: err });
             }
 
             const task = await taskRes.json();
 
-            // Associate task with deal if dealId provided
+            // Associate task with deal
             if (task.id && body.dealId) {
                 await fetch(
                     `https://api.hubapi.com/crm/v3/objects/tasks/${task.id}/associations/deals/${body.dealId}/task_to_deal`,
-                    {
-                        method: 'PUT',
-                        headers: { Authorization: `Bearer ${token}` }
-                    }
+                    { method: 'PUT', headers: { Authorization: `Bearer ${token}` } }
                 );
             }
 
@@ -119,5 +104,5 @@ module.exports = async (req, res) => {
         }
     }
 
-    return res.status(400).json({ error: 'Invalid request. Use GET ?dealId=123 or POST ?action=createTask' });
-};
+    return res.status(400).json({ error: 'Use GET ?dealId=123 or POST ?action=createTask' });
+}
